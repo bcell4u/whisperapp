@@ -13,11 +13,29 @@ parakeet = (base / 'npu/NpuPackageStore.kt').read_text()
 transcript = (base / 'ui/TranscriptLazyContent.kt').read_text()
 version = dict(line.split('=', 1) for line in (root / 'version.properties').read_text().splitlines() if '=' in line)
 
+# Qwen is intentionally a third independent NPU card.  The experimental
+# notice belongs to Qwen alone; do not weaken the previous Parakeet/Omi UI
+# guards by stripping that notice or re-labeling the working models.
+parakeet_start = models.find('id = NpuPackageStore.DOWNLOAD_ID')
+omi_start = models.find('id = OmiNpuPackageStore.DOWNLOAD_ID')
+qwen_start = models.find('id = Qwen3HybridPackageStore.DOWNLOAD_ID')
+qwen_end = models.find('item { SectionLabel("NVIDIA PARAKEET")', qwen_start)
+cards_ordered = 0 <= parakeet_start < omi_start < qwen_start < qwen_end
+parakeet_npu_card = models[parakeet_start:omi_start] if cards_ordered else ''
+omi_npu_card = models[omi_start:qwen_start] if cards_ordered else ''
+qwen_npu_card = models[qwen_start:qwen_end] if cards_ordered else ''
+
+def only_qwen_experimental(source):
+    """Allow experimental notices about Qwen, not unrelated model labels."""
+    return all('experimental' not in line.lower() or 'qwen' in line.lower()
+               for line in source.splitlines())
+
 checks = {
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
-    'two NPU cards share GPU card layout': models.count('ModelCatalogCard(') == 2
-        and 'LocalAsrModelCard(' in models and 'ModelCatalogCard(' in card,
+    'three independent NPU cards share model card layout': models.count('ModelCatalogCard(') == 3
+        and cards_ordered and 'LocalAsrModelCard(' in models
+        and 'ModelCatalogCard(' in card,
     'NPU download IDs preserved': 'id = NpuPackageStore.DOWNLOAD_ID' in models
         and 'id = OmiNpuPackageStore.DOWNLOAD_ID' in models,
     'download/cancel/use/model/remove controls': all(s in card for s in
@@ -29,11 +47,15 @@ checks = {
         and 'GPU models provide good speed' in models
         and 'CPU models are the slowest.' in models
         and 'Whisperapp/Models' in models,
-    'no user-facing experimental label': all('experimental' not in x.lower() for x in
-        [models.replace('ExperimentalMaterial3Api', ''), settings.replace('ExperimentalMaterial3Api', ''),
-         (base / 'transcribe/TranscriptionService.kt').read_text(),
-         (base / 'MainActivity.kt').read_text().replace('ExperimentalFoundationApi', '').replace('ExperimentalMaterial3Api', ''),
-         omi.split('const val DISPLAY_NAME = ')[1].split('\n')[0]]),
+    'experimental label scoped to Qwen only': cards_ordered
+        and 'Experimental hybrid, not clinically validated' in qwen_npu_card
+        and 'experimental' not in parakeet_npu_card.lower()
+        and 'experimental' not in omi_npu_card.lower()
+        and all(only_qwen_experimental(x) for x in
+            [settings.replace('ExperimentalMaterial3Api', ''),
+             (base / 'transcribe/TranscriptionService.kt').read_text(),
+             (base / 'MainActivity.kt').read_text().replace('ExperimentalFoundationApi', '').replace('ExperimentalMaterial3Api', ''),
+             omi.split('const val DISPLAY_NAME = ')[1].split('\n')[0]]),
     'Omi removal is confirmed and scoped': 'omiDeleteConfirm' in models
         and 'fun deleteArchive(context: Context): Boolean' in omi
         and 'SafStorage.deleteDocument(context, packageDir)' in omi

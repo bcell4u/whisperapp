@@ -1,6 +1,13 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.22**, Android `versionCode=65022`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.23**, Android `versionCode=65023`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+
+## v6.5.23 GitHub Actions source-audit fix
+
+Retains the experimental Qwen3-ASR-0.6B S26 hybrid backend from the preceding
+source snapshot. Updates the model-catalog verifier to accept three independent
+NPU model cards and allow the Qwen-specific experimental warning without changing
+Parakeet or Omi labels. Android CI compilation and phone testing are still pending.
 
 ## Transcription and acceleration
 
@@ -12,6 +19,7 @@ The app maintains these independent offline recognition backends:
 | Parakeet TDT 0.6B v3 Q8_0 | parakeet.cpp / Adreno OpenCL | GPU |
 | Omi Med STT v1 Q8_0 | shared parakeet.cpp / OpenCL runtime | GPU |
 | Omi Med STT v1 FP16 QNN (Experimental) | ONNX Runtime 1.27 / Qualcomm QNN 2.50 | Snapdragon NPU |
+| Qwen3-ASR 0.6B hybrid (Experimental, Android unverified) | Qualcomm QNN FP16 encoder / ONNX Runtime FP32 decoder | Snapdragon NPU + CPU |
 | Qwen3-ASR 1.7B | transcribe.cpp | CPU |
 | Whisper | whisper.cpp | CPU |
 

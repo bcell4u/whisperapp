@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.22
-versionName=6.5.22
-versionCode=65022
+releaseVersion=6.5.23
+versionName=6.5.23
+versionCode=65023
 ```
 
-This source targets v6.5.22. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.23. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -92,3 +92,12 @@ Refreshes stale release documentation and adds regression guards. No model conte
 transcription inference, speaker diarization, signing identity or storage format changed.
 Android Gradle compilation and on-device regression testing remain pending.
 `versionCode=65022`.
+
+## v6.5.23 (Qwen model catalog source verifier fix; Android CI pending)
+
+Retains the Qwen3-ASR experimental S26 hybrid integration source from the previous
+archive and updates source verifier assumptions to recognize three Qualcomm NPU
+model cards. Maintains the explicit Qwen-only experimental label and prevents
+that label from leaking into the existing Parakeet or Omi cards. The version
+metadata advances to `versionCode=65023` with no package ID or signing changes.
+No Android APK or S26 inference result is claimed for this release.

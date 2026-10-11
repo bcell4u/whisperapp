@@ -1,6 +1,6 @@
 # Experimental Qwen3-ASR-0.6B hybrid for Galaxy S26 / SM8850 / Hexagon V81
 
-Source integration against WhisperRecorder **v6.5.22**. This is a **source-code prototype**, not a verified Android APK. No existing Omi, Parakeet or Qwen GGUF backend has been replaced. No model or Qualcomm cloud compilation is included.
+Source integration against WhisperRecorder **v6.5.23**. This is a **source-code prototype**, not a verified Android APK. No existing Omi, Parakeet or Qwen GGUF backend has been replaced. No model or Qualcomm cloud compilation is included.
 
 ## Artifact & qualification boundary
 
@@ -45,3 +45,11 @@ The prior Windows real-speech test demonstrated an **S26 native QNN FP16 encoder
 - Encoder/decoder contract: `python/qwen3_asr_stage_g.py`, pinned exporter commit `4aee2ae0c355c7bc33bd5c09befec9e9eabd4b50`.
 - Preprocessing reference: `src/mel.py` of the same pinned upstream exporter.
 - No downloaded model weights, patient audio, credentials, signing keys or Qualcomm runtime shared libraries are included in this source ZIP.
+
+## v6.5.23 source-verification update
+
+The GitHub Actions `Verify source` step previously expected only two NPU cards
+and forbade all user-facing experimental warnings. Those assumptions did not
+match the new separate Qwen hybrid card. Both guards now accept the third card
+while still requiring Qwen's experimental warning and checking that Parakeet
+and Omi display labels do not acquire it. This is not an Android runtime fix.
