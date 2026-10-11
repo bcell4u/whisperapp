@@ -35,6 +35,9 @@ import com.example.whisperrecorder.ui.SectionLabel
 import com.example.whisperrecorder.ui.SettingCard
 import com.example.whisperrecorder.ui.modelDownloadProgressText
 import com.example.whisperrecorder.ui.models.LocalAsrModelCard
+import com.example.whisperrecorder.ui.models.ModelCatalogCard
+import com.example.whisperrecorder.ui.models.ModelCardDetails
+import com.example.whisperrecorder.transcribe.AsrEngine
 import com.example.whisperrecorder.ui.models.AccelerationNoticeDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -65,6 +68,8 @@ internal fun SetupScreen(
     val modelDownload by ModelDownloadRuntime.state.collectAsState()
     var status by rememberSaveable { mutableStateOf("") }
     var npuState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var omiState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var npuChecking by remember { mutableStateOf(false) }
 
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -137,8 +142,12 @@ internal fun SetupScreen(
     LaunchedEffect(treeUri, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
         if (treeUri != null && !modelDownload.active) {
             npuState = withContext(Dispatchers.IO) { NpuPackageStore.archiveState(context) }
+            omiState = withContext(Dispatchers.IO) { OmiNpuPackageStore.archiveState(context) }
+            qwenState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
         } else if (treeUri == null) {
             npuState = NpuArchiveState.NOT_INSTALLED
+            omiState = withContext(Dispatchers.IO) { OmiNpuPackageStore.archiveState(context) }
+            qwenState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
         }
     }
     LaunchedEffect(modelDownload.status, modelDownload.error) {
@@ -179,74 +188,81 @@ internal fun SetupScreen(
                 }
             }
 
-            val customInstalled = installed.filter { ModelManager.builtInFor(it) == null }
-            if (customInstalled.isNotEmpty()) {
-                item { Text("Imported Whisper models", style = MaterialTheme.typography.titleSmall) }
-                items(customInstalled, key = { "setup-installed-${it.absolutePath}" }) { file ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(ModelManager.displayName(file), fontWeight = FontWeight.SemiBold)
-                                Text("${file.length() / (1024 * 1024)} MiB", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Button(onClick = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedModelPath = file.absolutePath }, enabled = !modelDownload.active && localRestoringId == null && !(selectedEngine == "whisper" && selectedModelPath == file.absolutePath)) {
-                                Text(if (selectedEngine == "whisper" && selectedModelPath == file.absolutePath) "Selected" else "Use")
-                            }
-                        }
-                    }
-                }
-            }
-
-            item { SectionLabel("QUALCOMM NPU PARAKEET") }
+            item { SectionLabel("NPU") }
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text(NpuPackageStore.DISPLAY_NAME, fontWeight = FontWeight.SemiBold)
-                        Text("Optional ORT-QNN / HTP backend for validated SM8850/V81 devices. Requires a separate model download to the working directory. Unsupported devices cannot select this backend.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${NpuPackageStore.REPO_ID} · " + when (npuState) {
-                            NpuArchiveState.NOT_INSTALLED -> "Not installed"
-                            NpuArchiveState.INCOMPLETE -> "Incomplete / repairable"
-                            NpuArchiveState.READY -> "Package ready"
-                        }, style = MaterialTheme.typography.bodySmall)
-                        val downloadingNpu = modelDownload.active && modelDownload.modelId == NpuPackageStore.DOWNLOAD_ID
-                        if (downloadingNpu) {
-                            DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                            Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall)
-                            OutlinedButton(onClick = onCancelModelDownload) { Text("Cancel") }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = { onStartModelDownload(NpuPackageStore.DOWNLOAD_ID) },
-                                    enabled = treeUri != null && !modelDownload.active && !npuChecking && localRestoringId == null
-                                ) { Text(if (npuState == NpuArchiveState.NOT_INSTALLED) "Download package" else "Repair from HF") }
-                            }
-                            if (npuState == NpuArchiveState.READY) {
-                                val npuSelected = selectedEngine == "parakeet_npu" && selectedModelPath == NpuPackageStore.TRANSCRIPTION_MODEL_KEY
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            npuChecking = true
-                                            try {
-                                                withContext(Dispatchers.IO) { NpuPackageStore.selectForTranscription(context) }
-                                                selectedEngine = "parakeet_npu"
-                                                selectedModelPath = NpuPackageStore.TRANSCRIPTION_MODEL_KEY
-                                                status = "Qualcomm NPU model selected"
-                                            } catch (t: Throwable) {
-                                                status = "Cannot select NPU on this device: ${t.message ?: t.javaClass.simpleName}"
-                                            } finally { npuChecking = false }
-                                        }
-                                    },
-                                    enabled = !npuSelected && !modelDownload.active && !npuChecking && localRestoringId == null
-                                ) { Text(if (npuSelected) "Selected" else "Use NPU") }
-                            }
+                ModelCatalogCard(
+                    details = ModelCardDetails(NpuPackageStore.DOWNLOAD_ID, NpuPackageStore.DISPLAY_NAME,
+                        "CC BY 4.0 · Qualcomm Hexagon NPU", "~1.30 GB", 25),
+                    installed = npuState == NpuArchiveState.READY, persistent = false,
+                    selected = selectedEngine == "parakeet_npu", restoring = npuChecking || treeUri == null || localRestoringId != null,
+                    partialDownload = npuState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,
+                    onDownload = { onStartModelDownload(NpuPackageStore.DOWNLOAD_ID) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/${NpuPackageStore.REPO_ID}"))) },
+                    onUse = {
+                        scope.launch {
+                            npuChecking = true
+                            try {
+                                withContext(Dispatchers.IO) { NpuPackageStore.selectForTranscription(context) }
+                                selectedEngine = "parakeet_npu"
+                                selectedModelPath = NpuPackageStore.TRANSCRIPTION_MODEL_KEY
+                                status = "Parakeet NPU selected"
+                            } catch (t: Throwable) { status = "Could not select Parakeet NPU: ${t.message}" }
+                            finally { npuChecking = false }
                         }
                     }
-                }
+                )
             }
-
-            item { SectionLabel("NVIDIA PARAKEET") }
-
-            items(LocalAsrModelManager.nvidiaParakeetModels, key = { "setup-parakeet-local-${it.id}" }) { model ->
+            item {
+                ModelCatalogCard(
+                    details = ModelCardDetails(OmiNpuPackageStore.DOWNLOAD_ID, OmiNpuPackageStore.DISPLAY_NAME,
+                        "CC BY 4.0 · Qualcomm Hexagon NPU", "~1.24 GB", 1),
+                    installed = omiState == NpuArchiveState.READY, persistent = false,
+                    selected = selectedEngine == "omi_npu", restoring = npuChecking || treeUri == null || localRestoringId != null,
+                    partialDownload = omiState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,
+                    onDownload = { onStartModelDownload(OmiNpuPackageStore.DOWNLOAD_ID) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/${OmiNpuPackageStore.REPO_ID}"))) },
+                    onUse = {
+                        scope.launch {
+                            npuChecking = true
+                            try {
+                                withContext(Dispatchers.IO) { OmiNpuPackageStore.selectForTranscription(context) }
+                                selectedEngine = "omi_npu"
+                                selectedModelPath = OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY
+                                status = "Omi Med NPU selected"
+                            } catch (t: Throwable) { status = "Could not select Omi NPU: ${t.message}" }
+                            finally { npuChecking = false }
+                        }
+                    }
+                )
+            }
+            item {
+                ModelCatalogCard(
+                    details = ModelCardDetails(Qwen3HybridPackageStore.DOWNLOAD_ID, Qwen3HybridPackageStore.DISPLAY_NAME,
+                        "Apache 2.0 · Experimental hybrid, not clinically validated", "Compact Stage H FP32 decoder · S26 only", 30),
+                    installed = qwenState == NpuArchiveState.READY, persistent = false,
+                    selected = selectedEngine == "qwen3_hybrid", restoring = npuChecking || treeUri == null || localRestoringId != null,
+                    partialDownload = qwenState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,
+                    onDownload = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}/tree/main"))) },
+                    onUse = {
+                        scope.launch {
+                            npuChecking = true
+                            try {
+                                withContext(Dispatchers.IO) { Qwen3HybridPackageStore.select(context) }
+                                selectedEngine = "qwen3_hybrid"
+                                selectedModelPath = Qwen3HybridPackageStore.MODEL_KEY
+                                status = "Experimental Qwen hybrid selected"
+                            } catch (t: Throwable) { status = "Could not select Qwen hybrid: ${t.message}" }
+                            finally { npuChecking = false }
+                        }
+                    }
+                )
+            }
+            item { SectionLabel("GPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.PARAKEET || it.engine == AsrEngine.OMI }, key = { "setup-gpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -265,8 +281,8 @@ internal fun SetupScreen(
                 )
             }
 
-            item { SectionLabel("ADVANCED LOCAL ASR") }
-            items(LocalAsrModelManager.advancedModels, key = { "setup-local-${it.id}" }) { model ->
+            item { SectionLabel("CPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.QWEN3 }, key = { "setup-cpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -285,34 +301,41 @@ internal fun SetupScreen(
                 )
             }
 
-            item { SectionLabel("MULTILINGUAL") }
+            val customInstalled = installed.filter { ModelManager.builtInFor(it) == null }
+            items(customInstalled, key = { "setup-installed-${it.absolutePath}" }) { file ->
+                ModelCatalogCard(
+                    details = ModelCardDetails(file.absolutePath, ModelManager.displayName(file), "Imported Whisper · CPU",
+                        "${file.length() / (1024 * 1024)} MiB", ModelManager.whisperLanguages.size - 1),
+                    installed = true, persistent = false,
+                    selected = selectedEngine == "whisper" && selectedModelPath == file.absolutePath,
+                    restoring = localRestoringId != null,
+                    partialDownload = false, modelDownload = modelDownload,
+                    onUse = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedModelPath = file.absolutePath },
+                    onDownload = {}, onCancel = onCancelModelDownload, onOpenModel = null
+                )
+            }
             items(ModelManager.multilingualBuiltIns, key = { "setup-download-${it.fileName}" }) { model ->
                 val already = installed.firstOrNull { ModelManager.builtInFor(it)?.id == model.id }
-                val persistentDetected = model.id in persistentModelIds
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(model.name, fontWeight = FontWeight.SemiBold)
-                                Text(model.approxSize, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(ModelManager.languageSupportLabel(model), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            when {
-                                already != null -> Column(horizontalAlignment = Alignment.End) {
-                                    val selected = selectedEngine == "whisper" && selectedModelPath == already.absolutePath
-                                    Button(onClick = { ModelManager.select(context, already); selectedEngine = "whisper"; selectedModelPath = already.absolutePath }, enabled = !modelDownload.active && localRestoringId == null && !selected) { Text(if (selected) "Selected" else "Use") }
-                                    if (persistentDetected && !selected) Text("Model available", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                modelDownload.active && modelDownload.modelId == model.id -> OutlinedButton(onClick = { onCancelModelDownload() }) { Text("Cancel") }
-                                else -> Button(onClick = { onStartModelDownload(model.id) }, enabled = !modelDownload.active && localRestoringId == null) { Text(if (ModelManager.hasPartialDownload(context, model)) "Resume" else "Download") }
-                            }
+                ModelCatalogCard(
+                    details = ModelCardDetails(model.id, "Whisper ${model.name}", "whisper.cpp · CPU",
+                        model.approxSize, ModelManager.whisperLanguages.size - 1),
+                    installed = already != null,
+                    persistent = model.id in persistentModelIds,
+                    selected = selectedEngine == "whisper" && already != null && selectedModelPath == already.absolutePath,
+                    restoring = localRestoringId != null || treeUri == null,
+                    partialDownload = ModelManager.hasPartialDownload(context, model), modelDownload = modelDownload,
+                    onUse = {
+                        if (already != null) {
+                            ModelManager.select(context, already)
+                            selectedEngine = "whisper"; selectedModelPath = already.absolutePath
+                        } else {
+                            status = "Restore saved Whisper model in Models & downloads"
                         }
-                        if (modelDownload.active && modelDownload.modelId == model.id) {
-                            DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                            Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
+                    },
+                    onDownload = { onStartModelDownload(model.id) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/ggerganov/whisper.cpp"))) }
+                )
             }
             item {
                 Button(

@@ -40,7 +40,7 @@ internal fun ModelCatalogCard(
     onUse: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
-    onOpenModel: () -> Unit,
+    onOpenModel: (() -> Unit)?,
     onRemove: (() -> Unit)? = null
 ) {
     val downloading = modelDownload.active && modelDownload.modelId == details.id
@@ -69,7 +69,7 @@ internal fun ModelCatalogCard(
                             Text(if (partialDownload) "Resume" else "Download")
                         }
                     }
-                    TextButton(onClick = onOpenModel) { Text("Model") }
+                    if (onOpenModel != null) TextButton(onClick = onOpenModel) { Text("Model") }
                 }
             }
             if (onRemove != null) {
@@ -105,7 +105,7 @@ fun LocalAsrModelCard(
     onUse: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
-    onOpenModel: () -> Unit,
+    onOpenModel: (() -> Unit)?,
     onRemove: (() -> Unit)? = null
 ) = ModelCatalogCard(
     details = ModelCardDetails(model.id, model.name, model.licenseName, model.sizeLabel, model.languageCount),

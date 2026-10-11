@@ -53,3 +53,34 @@ and forbade all user-facing experimental warnings. Those assumptions did not
 match the new separate Qwen hybrid card. Both guards now accept the third card
 while still requiring Qwen's experimental warning and checking that Parakeet
 and Omi display labels do not acquire it. This is not an Android runtime fix.
+
+
+## v6.5.24 — Stage H lossless compact decoder (experimental)
+
+The app now recognizes **both** Qwen package schemas. The original Stage G v1
+release on Hugging Face `main` uses two independent `decoder_init.onnx.data` and
+`decoder_step.onnx.data` files. The Stage H v2 release is published only to the
+`main (compact schema v2)` branch and uses `decoder_weights.data` referenced by **both**
+`decoder_init.onnx` and `decoder_step.onnx` in the same app-private directory.
+A filename rename is not valid: the Stage H Builder rewrites external-data
+references and validates generated tokens and logits losslessly.
+
+New downloads and upgrades request only the Stage H branch, check its schema v2
+manifest, Stage H CPU smoke status, SHA-256 for all model assets, QNN context
+identity, and shared-weight Android contract before writing `READY.json`.
+Existing verified Stage G installs are still usable for rollback. Stage H
+installs to `qwen3-hybrid/stage-h-compact-0.6b` and never overwrites
+`qwen3-hybrid/stage-g-0.6b`. Users with both installed can deliberately remove
+the old v1 assets *after* v2 is verified, from Models & downloads. This may
+need temporary free space for both installations during migration.
+
+**Publishing prerequisite:** Complete Stage H1 with real weights and H2 with a
+verified `main (compact schema v2)` upload. Without H2, a new compact download will
+fail rather than silently downloading the 6 GB model from `main`. This source
+update does not prove Android S26 decoder memory/performance or QNN EPContext
+compatibility; keep the experimental warning and run the Android hardware
+probe followed by audio transcript comparisons.
+
+Both onboarding and Settings > Models & downloads now use uniform catalog cards
+grouped NPU, then GPU, then CPU. The old NVIDIA Parakeet and Advanced Local ASR
+section titles are removed, without removing those models.

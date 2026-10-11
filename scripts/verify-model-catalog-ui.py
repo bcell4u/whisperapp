@@ -19,7 +19,7 @@ version = dict(line.split('=', 1) for line in (root / 'version.properties').read
 parakeet_start = models.find('id = NpuPackageStore.DOWNLOAD_ID')
 omi_start = models.find('id = OmiNpuPackageStore.DOWNLOAD_ID')
 qwen_start = models.find('id = Qwen3HybridPackageStore.DOWNLOAD_ID')
-qwen_end = models.find('item { SectionLabel("NVIDIA PARAKEET")', qwen_start)
+qwen_end = models.find('item { SectionLabel("GPU")', qwen_start)
 cards_ordered = 0 <= parakeet_start < omi_start < qwen_start < qwen_end
 parakeet_npu_card = models[parakeet_start:omi_start] if cards_ordered else ''
 omi_npu_card = models[omi_start:qwen_start] if cards_ordered else ''
@@ -33,13 +33,25 @@ def only_qwen_experimental(source):
 checks = {
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
-    'three independent NPU cards share model card layout': models.count('ModelCatalogCard(') == 3
+    'three independent NPU cards share model card layout': models.count('ModelCatalogCard(') >= 5
         and cards_ordered and 'LocalAsrModelCard(' in models
         and 'ModelCatalogCard(' in card,
     'NPU download IDs preserved': 'id = NpuPackageStore.DOWNLOAD_ID' in models
         and 'id = OmiNpuPackageStore.DOWNLOAD_ID' in models,
     'download/cancel/use/model/remove controls': all(s in card for s in
         ['"Use"', '"Download"', '"Resume"', '"Cancel"', '"Model"', 'ModelRemovalAction(']),
+    'both menus grouped NPU GPU CPU': all(
+        'item { SectionLabel("NPU") }' in src and
+        'item { SectionLabel("GPU") }' in src and
+        'item { SectionLabel("CPU") }' in src and
+        src.index('SectionLabel("NPU")') < src.index('SectionLabel("GPU")') < src.index('SectionLabel("CPU")') and
+        'NVIDIA PARAKEET' not in src and 'ADVANCED LOCAL ASR' not in src
+        for src in (models, setup)),
+    'all model cards share component': models.count('ModelCatalogCard(') >= 5
+        and setup.count('ModelCatalogCard(') >= 5,
+    'compact Qwen branch and v1 rollback': all(term in (base / 'npu/Qwen3HybridPackageStore.kt').read_text()
+        for term in ['private const val COMPACT_REVISION = "main"','decoder_weights.data','schemaVersion == 2',
+                     'removeLegacyAfterUpgrade','legacyFolder(context)', 'verifiedFolder']),
     'no Parakeet verify button': 'Verify files' not in models and 'Verify files' not in setup,
     'automatic package verification retained': 'verifyArchived' in omi
         and 'validateManifest' in omi,

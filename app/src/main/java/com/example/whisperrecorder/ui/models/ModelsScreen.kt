@@ -65,6 +65,7 @@ internal fun ModelsScreen(
     var omiArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenDeleteConfirm by remember { mutableStateOf(false) }
+    var qwenLegacyDeleteConfirm by remember { mutableStateOf(false) }
     var npuDeleteConfirm by remember { mutableStateOf(false) }
     var omiDeleteConfirm by remember { mutableStateOf(false) }
     var npuActionRunning by remember { mutableStateOf(false) }
@@ -203,7 +204,7 @@ internal fun ModelsScreen(
                 }
             }
 
-            item { SectionLabel("QUALCOMM NPU") }
+            item { SectionLabel("NPU") }
             item {
                 ModelCatalogCard(
                     details = ModelCardDetails(
@@ -289,7 +290,7 @@ internal fun ModelsScreen(
                         id = Qwen3HybridPackageStore.DOWNLOAD_ID,
                         name = Qwen3HybridPackageStore.DISPLAY_NAME,
                         licenseName = "Apache 2.0 · Experimental hybrid, not clinically validated",
-                        sizeLabel = "~6 GB · Stored once in app-private storage · S26 only",
+                        sizeLabel = "Compact Stage H · shared FP32 decoder weights · S26 only",
                         languageCount = 30
                     ),
                     installed = qwenArchiveState == NpuArchiveState.READY,
@@ -314,7 +315,7 @@ internal fun ModelsScreen(
                     onDownload = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
                     onCancel = onCancelModelDownload,
                     onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}"))) },
+                        Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}/tree/main"))) },
                     onRemove = { qwenDeleteConfirm = true }
                 )
                 OutlinedButton(onClick = {
@@ -331,6 +332,17 @@ internal fun ModelsScreen(
                     }
                 }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
                     Text("Clear Qwen temporary test files (manual)")
+                }
+                if (qwenArchiveState == NpuArchiveState.READY && !Qwen3HybridPackageStore.compactInstalled(context)) {
+                    OutlinedButton(onClick = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
+                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Upgrade Qwen to compact Stage H")
+                    }
+                }
+                if (Qwen3HybridPackageStore.compactInstalled(context) && Qwen3HybridPackageStore.legacyInstalled(context)) {
+                    OutlinedButton(onClick = { qwenLegacyDeleteConfirm = true                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Remove old Qwen v1 weights (compact verified)")
+                    }
                 }
                 if (qwenArchiveState == NpuArchiveState.INCOMPLETE) {
                     OutlinedButton(onClick = { qwenDeleteConfirm = true },
@@ -359,8 +371,8 @@ internal fun ModelsScreen(
                 }
             }
 
-            item { SectionLabel("NVIDIA PARAKEET") }
-            items(LocalAsrModelManager.nvidiaParakeetModels, key = { "parakeet-local-${it.id}" }) { model ->
+            item { SectionLabel("GPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.PARAKEET || it.engine == AsrEngine.OMI }, key = { "gpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -381,8 +393,8 @@ internal fun ModelsScreen(
                 )
             }
 
-            item { SectionLabel("ADVANCED LOCAL ASR") }
-            items(LocalAsrModelManager.advancedModels, key = { "local-${it.id}" }) { model ->
+            item { SectionLabel("CPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.QWEN3 }, key = { "cpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -404,70 +416,72 @@ internal fun ModelsScreen(
             }
 
             val customModels = installed.filter { ModelManager.builtInFor(it) == null }
-            if (customModels.isNotEmpty()) {
-                item { SectionLabel("IMPORTED WHISPER") }
-                items(customModels, key = { it.absolutePath }) { file ->
-                    val isSelected = selectedEngine == "whisper" && selectedPath == file.absolutePath
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(ModelManager.displayName(file), fontWeight = FontWeight.SemiBold)
-                            Text("${file.length() / (1024 * 1024)} MiB${if (isSelected) " • Active" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(ModelManager.languageSupportLabel(file), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Button(
-                                onClick = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedPath = file.absolutePath },
-                                enabled = !modelDownload.active && localRestoringId == null && !isSelected
-                            ) { Text(if (isSelected) "Selected" else "Use") }
-                            ModelRemovalAction(
-                                visible = true,
-                                enabled = !transcriptionState.active && !modelDownload.active && localRestoringId == null && !npuActionRunning,
-                                onClick = { deleteTarget = file }
-                            )
-                        }
-                    }
-                }
+            items(customModels, key = { it.absolutePath }) { file ->
+                val isSelected = selectedEngine == "whisper" && selectedPath == file.absolutePath
+                ModelCatalogCard(
+                    details = ModelCardDetails(file.absolutePath, ModelManager.displayName(file), "Imported Whisper · CPU",
+                        "${file.length() / (1024 * 1024)} MiB", ModelManager.whisperLanguages.size - 1),
+                    installed = true, persistent = false, selected = isSelected,
+                    restoring = localRestoringId != null || npuActionRunning,
+                    partialDownload = false, modelDownload = modelDownload,
+                    onUse = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedPath = file.absolutePath },
+                    onDownload = {}, onCancel = onCancelModelDownload, onOpenModel = null,
+                    removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
+                    onRemove = { deleteTarget = file }
+                )
             }
-
-            item { SectionLabel("MULTILINGUAL") }
             items(ModelManager.multilingualBuiltIns, key = { it.id }) { model ->
                 val already = installed.firstOrNull { ModelManager.builtInFor(it)?.id == model.id }
                 val persistentDetected = model.id in persistentModelIds
                 val isSelected = selectedEngine == "whisper" && already != null && selectedPath == already.absolutePath
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(model.name, fontWeight = FontWeight.SemiBold)
-                                Text(if (already != null) "${already.length() / (1024 * 1024)} MiB${if (isSelected) " • Active" else " • Installed"}" else model.approxSize, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(ModelManager.languageSupportLabel(model), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (already == null) {
-                                if (modelDownload.active && modelDownload.modelId == model.id) OutlinedButton(onClick = { onCancelModelDownload() }) { Text("Cancel") }
-                                else Button(onClick = { onStartModelDownload(model.id) }, enabled = !modelDownload.active && localRestoringId == null) { Text(if (ModelManager.hasPartialDownload(context, model)) "Resume" else "Download") }
-                            } else {
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Button(
-                                        onClick = { ModelManager.select(context, already); selectedEngine = "whisper"; selectedPath = already.absolutePath },
-                                        enabled = !modelDownload.active && localRestoringId == null && !isSelected
-                                    ) { Text(if (isSelected) "Selected" else "Use") }
-                                    if (persistentDetected && !isSelected) Text("Model available", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
+                ModelCatalogCard(
+                    details = ModelCardDetails(model.id, "Whisper ${model.name}", "whisper.cpp · CPU",
+                        model.approxSize, ModelManager.whisperLanguages.size - 1),
+                    installed = already != null, persistent = persistentDetected, selected = isSelected,
+                    restoring = localRestoringId != null || npuActionRunning,
+                    partialDownload = ModelManager.hasPartialDownload(context, model), modelDownload = modelDownload,
+                    onUse = {
                         if (already != null) {
-                            ModelRemovalAction(
-                                visible = true,
-                                enabled = !transcriptionState.active && !modelDownload.active && localRestoringId == null && !npuActionRunning,
-                                onClick = { deleteTarget = already }
-                            )
+                            ModelManager.select(context, already)
+                            selectedEngine = "whisper"; selectedPath = already.absolutePath
+                        } else {
+                            status = "Restore the saved Whisper model from Models & downloads"
                         }
-                        if (modelDownload.active && modelDownload.modelId == model.id) {
-                            DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                            Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
+                    },
+                    onDownload = { onStartModelDownload(model.id) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://huggingface.co/ggerganov/whisper.cpp"))) },
+                    removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
+                    onRemove = { if (already != null) deleteTarget = already }
+                )
             }
         }
+    }
+
+    if (qwenLegacyDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { qwenLegacyDeleteConfirm = false },
+            title = { Text("Remove old Qwen weights?") },
+            text = { Text("The compact Stage H model will be retained. Only the obsolete app-private Qwen Stage G decoder package will be deleted. Your recordings and other ASR models will not be touched.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenLegacyDeleteConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val ok = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.removeLegacyAfterUpgrade(context) }
+                            status = if (ok) "Old Qwen Stage G weights removed; compact model retained"
+                                else "Could not remove old Qwen weights"
+                        } catch (t: Throwable) { status = "Qwen old-package cleanup failed: ${t.message}" }
+                        finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                    Text("Remove old weights")
+                }
+            },
+            dismissButton = { TextButton(onClick = { qwenLegacyDeleteConfirm = false }) { Text("Cancel") } }
+        )
     }
 
     if (npuDeleteConfirm) {
