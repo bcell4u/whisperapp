@@ -291,7 +291,7 @@ internal fun ModelsScreen(
                         id = Qwen3HybridPackageStore.DOWNLOAD_ID,
                         name = Qwen3HybridPackageStore.DISPLAY_NAME,
                         licenseName = "Apache 2.0 · Experimental hybrid, not clinically validated",
-                        sizeLabel = "Compact Stage H · shared FP32 decoder weights · S26 only",
+                        sizeLabel = Qwen3HybridPackageStore.packageDescription(context),
                         languageCount = 30
                     ),
                     installed = qwenArchiveState == NpuArchiveState.READY,

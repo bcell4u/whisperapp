@@ -240,7 +240,7 @@ internal fun SetupScreen(
             item {
                 ModelCatalogCard(
                     details = ModelCardDetails(Qwen3HybridPackageStore.DOWNLOAD_ID, Qwen3HybridPackageStore.DISPLAY_NAME,
-                        "Apache 2.0 · Experimental hybrid, not clinically validated", "Compact Stage H FP32 decoder · S26 only", 30),
+                        "Apache 2.0 · Experimental hybrid, not clinically validated", Qwen3HybridPackageStore.packageDescription(context), 30),
                     installed = qwenState == NpuArchiveState.READY, persistent = false,
                     selected = selectedEngine == "qwen3_hybrid", restoring = npuChecking || treeUri == null || localRestoringId != null,
                     partialDownload = qwenState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,

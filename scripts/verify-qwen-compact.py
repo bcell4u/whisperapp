@@ -33,6 +33,26 @@ checks = {
     'previous large v1 deletion still confirmed':
         'qwenLegacyDeleteConfirm' in model and 'removeLegacyAfterUpgrade' in src,
     'encoder CPU fallback blocked': 'session.disable_cpu_ep_fallback' in runner,
+    'Qwen external EPContext path is relative':
+        'NpuEpContextModel.write(contract, File(modelDir, "encoder-qnn-fp16.bin"), encoderWrapper, "2.50")' in runner
+        and 'NpuEpContextModel.writeExternalPath(contract, File(modelDir,' not in runner,
+    'Qwen context wrapper is co-located, not staged under cacheDir':
+        'File(modelDir, Qwen3HybridPackageStore.EP_CONTEXT_WRAPPER_NAME)' in runner
+        and 'env.createSession(encoderWrapper.absolutePath, opts)' in runner,
+    'Qwen EPContext wrapper cleanup is scoped to exact name':
+        'EP_CONTEXT_WRAPPER_NAME = "qwen3-encoder-epcontext.onnx"' in src
+        and 'File(context.filesDir, "$base/$stage/$EP_CONTEXT_WRAPPER_NAME")' in src
+        and 'Qwen3HybridPackageStore.clearTemporaryTestFiles(applicationContext)' in runner,
+    'Qwen model stored in durable app-private whisperapp/models':
+        'PERSISTENT_ROOT = "whisperapp/models/qwen3-asr-0.6b"' in src
+        and 'fun fp16Folder(context: Context): File = stageFolder(context, "stage-i-fp16-0.6b", 3)' in src,
+    'existing model files migrated by rename, never copied or forcibly redownloaded':
+        'previous.renameTo(destination)' in src and 'if (destination.exists()) continue' in src
+        and 'localState(previous, version) == NpuArchiveState.READY' in src,
+    'both model menus describe installed Stage I instead of always Stage H':
+        'Qwen3HybridPackageStore.packageDescription(context)' in model
+        and 'Qwen3HybridPackageStore.packageDescription(context)' in
+        (root / 'app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt').read_text(),
     'decoder models loaded with same-directory external data':
         'env.createSession(File(modelDir,"decoder_init.onnx").absolutePath' in runner and
         'env.createSession(File(modelDir,"decoder_step.onnx").absolutePath' in runner,

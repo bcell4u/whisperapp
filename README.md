@@ -1,6 +1,10 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.27**, Android `versionCode=65027`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.28**, Android `versionCode=65028`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+
+## v6.5.28 Qwen EPContext relative-path fix
+
+The Qwen worker now creates the ONNX EPContext wrapper beside the verified encoder binary, using a relative `ep_cache_context` filename as required by ORT-QNN. The phone-clearing button and post-session cleanup remove only generated wrapper files. Real S26 testing is pending. See [RELEASE-v6.5.28.md](RELEASE-v6.5.28.md).
 
 ## v6.5.27 APK audit backend-ID fix
 
@@ -115,3 +119,5 @@ Moves model inventory initialization and library/detail model-path checks off th
 concurrent model operations, scopes NPU staging cleanup to the selected model, and
 optimizes long-transcript cue partitioning. See `VERSIONING.md` for the change history.
 The existing signed release workflow remains authoritative for Android compilation.
+
+Qwen 0.6B model files are persisted under app-private `whisperapp/models/qwen3-asr-0.6b` and reused across in-place upgrades; older Qwen folders are migrated by atomic rename where available. App uninstall or clearing storage still deletes them.

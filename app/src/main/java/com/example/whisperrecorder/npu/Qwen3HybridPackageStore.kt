@@ -16,6 +16,8 @@ internal object Qwen3HybridPackageStore {
     const val DOWNLOAD_ID = "qwen3-0.6b-sm8850-v81-hybrid"
     const val DISPLAY_NAME = "Qwen3-ASR 0.6B · S26 NPU encoder + CPU decoder (experimental)"
     const val MODEL_KEY = "qwen3-hybrid://sm8850-v81-0.6b-stage-g"
+    // Generated locally at runtime, never downloaded or included in the signed model manifest.
+    const val EP_CONTEXT_WRAPPER_NAME = "qwen3-encoder-epcontext.onnx"
     const val REPO_ID = "drinnird/qwen3-asr-0.6b-snapdragon-sm8850-v81"
     private const val SCHEMA = "whisperrecorder.qwen3-s26-hybrid-package"
     private const val EXPORTER = "4aee2ae0c355c7bc33bd5c09befec9e9eabd4b50"
@@ -37,10 +39,59 @@ internal object Qwen3HybridPackageStore {
     private const val MAX_PACKAGE_BYTES = 9_000_000_000L
     data class Asset(val name: String, val bytes: Long, val sha256: String)
 
-    /** New installs target verified compact schema v2 at HF main. An already installed v1 is kept for rollback. */
-    fun fp16Folder(context: Context): File = File(context.filesDir, "qwen3-hybrid/stage-i-fp16-0.6b")
-    fun compactFolder(context: Context): File = File(context.filesDir, "qwen3-hybrid/stage-h-compact-0.6b")
-    fun legacyFolder(context: Context): File = File(context.filesDir, "qwen3-hybrid/stage-g-0.6b")
+    /** Durable app-private model storage: files/whisperapp/models/qwen3-asr-0.6b/.
+     * Survives recording sessions, process death, reboots and in-place app upgrades.
+     * Like all Android app-private files, it does not survive uninstall / Clear app storage.
+     */
+    private const val PERSISTENT_ROOT = "whisperapp/models/qwen3-asr-0.6b"
+    private const val PREVIOUS_ROOT = "qwen3-hybrid"
+    private val supportedStages = listOf("stage-i-fp16-0.6b", "stage-h-compact-0.6b", "stage-g-0.6b")
+    private val migrationLock = Any()
+
+    /** Rename, do not copy, gigabytes of existing verified/partial model data on the same volume.
+     * A failed migration leaves the original folder intact and still usable. Never redownload.
+     * The :qwen service can start independently, so both GUI and worker use the same logic.
+     */
+    private fun migrateExistingFolders(context: Context) {
+        synchronized(migrationLock) {
+            for (stage in supportedStages) {
+                val previous = File(context.filesDir, "$PREVIOUS_ROOT/$stage")
+                if (!previous.isDirectory) continue
+                val destination = File(context.filesDir, "$PERSISTENT_ROOT/$stage")
+                if (destination.exists()) continue // Never overwrite a newer/partial folder.
+                val parent = destination.parentFile ?: continue
+                if (!parent.isDirectory && !parent.mkdirs()) continue
+                // renameTo is a filesystem move, so large decoder weights are not copied.
+                // On failure the previous directory remains available for selection.
+                previous.renameTo(destination)
+            }
+        }
+    }
+
+    private fun stageFolder(context: Context, stage: String, version: Int): File {
+        require(stage in supportedStages)
+        migrateExistingFolders(context)
+        val persistent = File(context.filesDir, "$PERSISTENT_ROOT/$stage")
+        val previous = File(context.filesDir, "$PREVIOUS_ROOT/$stage")
+        return when {
+            localState(persistent, version) == NpuArchiveState.READY -> persistent
+            localState(previous, version) == NpuArchiveState.READY -> previous
+            persistent.exists() -> persistent // Resume partial new-layout downloads.
+            previous.exists() -> previous // Resume the original download without re-fetching.
+            else -> persistent
+        }
+    }
+
+    fun fp16Folder(context: Context): File = stageFolder(context, "stage-i-fp16-0.6b", 3)
+    fun compactFolder(context: Context): File = stageFolder(context, "stage-h-compact-0.6b", 2)
+    fun legacyFolder(context: Context): File = stageFolder(context, "stage-g-0.6b", 1)
+
+    fun packageDescription(context: Context): String = when {
+        fp16Installed(context) -> "Stage I · shared FP16-stored CPU decoder · S26 only"
+        compactInstalled(context) -> "Stage H · shared FP32 CPU decoder · S26 only"
+        legacyInstalled(context) -> "Stage G · original FP32 CPU decoder · S26 only"
+        else -> "Stage I · compact FP16-stored CPU decoder · S26 only"
+    }
     fun folder(context: Context): File = when {
         localState(fp16Folder(context), 3) == NpuArchiveState.READY -> fp16Folder(context)
         localState(compactFolder(context), 2) == NpuArchiveState.READY -> compactFolder(context)
@@ -260,16 +311,32 @@ internal object Qwen3HybridPackageStore {
         AppPrefs.setModelPath(context, null)
     }
 
-    /** Recovery for a killed :qwen process: only this backend's generated EPContext wrapper. */
+    /** Recovery for a killed :qwen process. Only exact Builder-owned temporary names are removed.
+     * Never removes QNN contexts, model weights, recordings, or package receipts.
+     */
     fun clearTemporaryTestFiles(context: Context): Boolean {
+        // Clean legacy cacheDir wrappers left by v6.5.27 and earlier.
         val scratch = File(context.cacheDir, "qwen3-hybrid-epcontext")
-        val deleted = !scratch.exists() || scratch.deleteRecursively()
-        return deleted && !scratch.exists()
+        var clean = (!scratch.exists() || scratch.deleteRecursively()) && !scratch.exists()
+        // v6.5.28's wrapper is adjacent to the context binary so ORT can resolve a
+        // basename-only ep_cache_context. Check every supported package version.
+        for (stage in supportedStages) {
+            // Exact file only; support both old and migrated installation paths.
+            for (base in listOf(PERSISTENT_ROOT, PREVIOUS_ROOT)) {
+                val wrapper = File(context.filesDir, "$base/$stage/$EP_CONTEXT_WRAPPER_NAME")
+                val deleted = (!wrapper.exists() || wrapper.delete()) && !wrapper.exists()
+                if (!deleted) clean = false
+            }
+        }
+        return clean
     }
 
     fun delete(context: Context): Boolean {
-        val dirs = listOf(fp16Folder(context), compactFolder(context), legacyFolder(context))
-        val deleted = dirs.all { (!it.exists() || it.deleteRecursively()) && !it.exists() }
+        val dirs = supportedStages.flatMap { stage ->
+            listOf(File(context.filesDir, "$PERSISTENT_ROOT/$stage"), File(context.filesDir, "$PREVIOUS_ROOT/$stage"))
+        }
+        // Only the explicit Delete Model command may delete model weights.
+        val deleted = dirs.map { (!it.exists() || it.deleteRecursively()) && !it.exists() }.all { it }
         if (deleted && AppPrefs.getTranscriptionEngine(context) == "qwen3_hybrid") {
             AppPrefs.setTranscriptionEngine(context, "whisper")
             AppPrefs.setModelPath(context, null)

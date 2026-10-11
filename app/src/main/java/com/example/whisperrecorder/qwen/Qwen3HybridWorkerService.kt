@@ -65,9 +65,10 @@ class Qwen3HybridWorkerService : Service() {
     private inner class Runtime : AutoCloseable {
         private val env = OrtEnvironment.getEnvironment()
         private val modelDir: File = Qwen3HybridPackageStore.verifiedFolder(applicationContext)
-        private val scratch = File(cacheDir, "qwen3-hybrid-epcontext").apply {
-            require(mkdirs() || isDirectory)
-        }
+        // External EPContext paths are resolved relative to the ONNX wrapper's directory.
+        // Keep this tiny generated ONNX beside the SHA-256 verified QNN context, not in cacheDir.
+        // The original context stays installed and is never copied or modified.
+        private val encoderWrapper = File(modelDir, Qwen3HybridPackageStore.EP_CONTEXT_WRAPPER_NAME)
         private var qnnOptions: OrtSession.SessionOptions? = null
         private var encoder: OrtSession? = null
         private var decoderInit: OrtSession? = null
@@ -104,14 +105,15 @@ class Qwen3HybridWorkerService : Service() {
             }
             val devices = env.epDevices.filter { it.epName == "QNNExecutionProvider" }
             require(devices.isNotEmpty()) { "QNN EP is not available for the S26" }
-            val wrapper = File(scratch, "encoder-context.onnx")
-            NpuEpContextModel.writeExternalPath(contract, File(modelDir,"encoder-qnn-fp16.bin").absolutePath,
-                wrapper, "2.50")
+            // ORT's QNN provider forbids absolute ep_cache_context in external mode.
+            // NpuEpContextModel.write enforces same-directory placement and writes only
+            // the relative basename "encoder-qnn-fp16.bin" into ep_cache_context.
+            NpuEpContextModel.write(contract, File(modelDir, "encoder-qnn-fp16.bin"), encoderWrapper, "2.50")
             val opts = OrtSession.SessionOptions()
             try {
                 opts.addConfigEntry("session.disable_cpu_ep_fallback", "1")
                 opts.addExecutionProvider(devices, mapOf("backend_path" to htp.absolutePath))
-                encoder = env.createSession(wrapper.absolutePath, opts)
+                encoder = env.createSession(encoderWrapper.absolutePath, opts)
                 require(encoder!!.inputNames == setOf("mel") && encoder!!.outputNames == setOf("audio_features")) {
                     "QNN encoder graph I/O contract does not match compiled Stage G artifact"
                 }
@@ -279,9 +281,11 @@ class Qwen3HybridWorkerService : Service() {
             runCatching { embedding?.close() }; embedding = null
             tokenizer = null
             runCatching { qnnOptions?.close() }; qnnOptions = null
-            // Do not remove installed models; only delete our own temporary EPContext wrapper.
-            val cleaned = !scratch.exists() || scratch.deleteRecursively()
-            check(cleaned && !scratch.exists()) { "Qwen temporary wrapper cleanup failed" }
+            // Never delete the installed .bin or decoder weights. Remove only our generated
+            // ONNX wrapper and old-version scratch files, including after a failed prepare().
+            check(Qwen3HybridPackageStore.clearTemporaryTestFiles(applicationContext)) {
+                "Qwen temporary wrapper cleanup failed"
+            }
         }
     }
 }
