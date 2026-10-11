@@ -1,0 +1,17 @@
+NVIDIA Parakeet-TDT 0.6B v3 attribution
+
+Whisper Recorder optionally downloads a Q8_0 GGUF conversion of NVIDIA Parakeet-TDT 0.6B v3 for local/offline speech recognition. The model is not bundled in the APK.
+
+Original model: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+Original model author: NVIDIA
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License text: https://creativecommons.org/licenses/by/4.0/
+
+Runtime-compatible GGUF conversion: https://huggingface.co/mudler/parakeet-cpp-gguf
+Runtime: parakeet.cpp v0.5.0
+Quantization: Q8_0
+Production compute path: Qualcomm/OpenCL / Adreno GPU
+
+NVIDIA also publishes a Q8_0 GGUF for NeMo-Speech.cpp. That artifact uses NeMo-Speech.cpp's ASR GGUF schema and is not substituted into parakeet.cpp without explicit compatibility validation.
+
+Inference is performed locally on the device after download.
