@@ -84,3 +84,12 @@ probe followed by audio transcript comparisons.
 Both onboarding and Settings > Models & downloads now use uniform catalog cards
 grouped NPU, then GPU, then CPU. The old NVIDIA Parakeet and Advanced Local ASR
 section titles are removed, without removing those models.
+
+
+## v6.5.26 — Experimental Stage I FP16-storage decoder, schema v3
+
+The v3 package replaces `decoder_weights.data` with `decoder_weights_fp16.data`, and BOTH decoder ONNX graph files contain Cast-to-FP32 nodes. The decoder still executes on CPU. It is NOT a native FP16 CPU compute kernel. Exact Windows token parity on one speech recording and a synthetic input is necessary but not sufficient evidence of on-phone model equivalence.
+
+After I2 publishes audited Stage I1 to Hugging Face `main`, new app downloads must verify schema version 3, provenance hash, token parity status, all SHA-256s, the v3 integration contract and matching packed filename. The model is stored separately from older v1/v2 packages. The `:qwen` worker still creates sessions from the ONNX graphs with the external weights beside them. Before calling this an accepted model, verify Android ORT CPU graph loading, device memory/latency, actual transcript parity and physical NPU encoder execution.
+
+Do not publish unverified or incompatible schema v3 to `main` while relying on v6.5.25 clients to download new packages.

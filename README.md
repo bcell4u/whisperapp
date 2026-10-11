@@ -1,6 +1,10 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.25**, Android `versionCode=65025`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.26**, Android `versionCode=65026`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+
+## v6.5.26 experimental Qwen Stage I FP16 storage
+
+See [RELEASE-v6.5.26.md](RELEASE-v6.5.26.md). New Qwen downloads require schema v3 from the verified Hugging Face main repository. Existing v1/v2 installs remain readable.
 
 ## v6.5.25 GitHub Actions source-audit fix
 
