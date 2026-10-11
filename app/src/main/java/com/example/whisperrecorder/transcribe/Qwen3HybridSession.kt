@@ -38,7 +38,23 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                 "Qwen hybrid inference failed: ${response.optString("error")}. CPU fallback is disabled for the encoder."
             }
             AsrRecognition(text = response.getString("transcript"),
-                diagnostics = " qualification=experimental qwen3Hybrid=true encoderGraphCalls=${response.optInt("encoder_graph_calls")} encoderMs=${response.optLong("encoder_ms")} decoderMs=${response.optLong("decoder_ms")}")
+                diagnostics = buildString {
+                    append(" qualification=experimental qwen3Hybrid=true")
+                    append(" encoderGraphCalls=${response.optInt("encoder_graph_calls")}")
+                    append(" encoderEP=${response.optString("encoder_execution_provider")}")
+                    append(" decoderEP=${response.optString("decoder_execution_provider")}")
+                    append(" decoderNpuGraphCalls=${response.optInt("decoder_npu_graph_calls")}")
+                    for ((label, field) in listOf(
+                        "preprocessMs" to "preprocess_ms", "encoderMs" to "encoder_ms",
+                        "decoderLoadMs" to "decoder_load_ms", "decoderMs" to "decoder_ms",
+                        "prefillMs" to "decoder_prefill_ms", "stepMs" to "decoder_step_ms",
+                        "decoderSteps" to "decoder_steps", "tokens" to "tokens",
+                        "embeddingIoMs" to "decoder_embedding_io_ms", "argmaxMs" to "decoder_argmax_ms",
+                        "decoderThreads" to "decoder_intra_threads", "workerCpuMs" to "worker_cpu_ms",
+                        "workerWallMs" to "worker_wall_ms", "workerPssKb" to "worker_pss_kb",
+                        "thermalStart" to "thermal_start", "thermalEnd" to "thermal_end"
+                    )) append(" $label=${response.optLong(field, -1L)}")
+                })
         }
     }
     override fun cancel() { cancelled = true; client.cancelCurrent() }

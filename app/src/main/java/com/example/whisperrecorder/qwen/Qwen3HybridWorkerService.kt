@@ -7,6 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+import android.os.Process
 import android.os.SharedMemory
 import android.os.SystemClock
 import android.system.Os
@@ -62,6 +65,12 @@ class Qwen3HybridWorkerService : Service() {
             .put("experimental", true).toString()
     }
 
+    // Nested data classes cannot be declared inside Kotlin `inner` classes.
+    private data class DecodeStats(
+        val tokens: List<Int>, val prefillMs: Long, val stepMs: Long,
+        val steps: Int, val embeddingMs: Long, val argmaxMs: Long
+    )
+
     private inner class Runtime : AutoCloseable {
         private val env = OrtEnvironment.getEnvironment()
         private val modelDir: File = Qwen3HybridPackageStore.verifiedFolder(applicationContext)
@@ -75,6 +84,7 @@ class Qwen3HybridWorkerService : Service() {
         private var decoderStep: OrtSession? = null
         private var embedding: RandomAccessFile? = null
         private var tokenizer: Qwen3ByteTokenizer? = null
+        private var decoderLoadCount = 0
         private val contract = NpuGraphContract("qwen3_encoder", "qwen3_asr_encoder", "encoder-qnn-fp16.bin",
             File(modelDir, "encoder-qnn-fp16.bin").length(),
             listOf(NpuTensorContract("mel", longArrayOf(1,128,1200))),
@@ -150,8 +160,9 @@ class Qwen3HybridWorkerService : Service() {
                 .put("decoder", "CPU FP32 ONNX (lazy load)").put("experimental", true)
         }
 
-        private fun ensureDecoder() {
-            if (decoderInit != null && decoderStep != null) return
+        private fun ensureDecoder(): Long {
+            if (decoderInit != null && decoderStep != null) return 0L
+            val start = SystemClock.elapsedRealtime()
             val initOpts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
             val stepOpts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
             try {
@@ -161,6 +172,7 @@ class Qwen3HybridWorkerService : Service() {
                 require(decoderStep!!.inputNames == setOf("input_embeds", "position_ids", "past_keys", "past_values"))
                 embedding = RandomAccessFile(File(modelDir,"embed_tokens.bin"), "r")
                 tokenizer = Qwen3ByteTokenizer.load(File(modelDir,"tokenizer.json"))
+                decoderLoadCount++
             } catch (t: Throwable) {
                 runCatching { decoderInit?.close() }; decoderInit = null
                 runCatching { decoderStep?.close() }; decoderStep = null
@@ -169,11 +181,15 @@ class Qwen3HybridWorkerService : Service() {
             } finally {
                 initOpts.close(); stepOpts.close()
             }
+            return SystemClock.elapsedRealtime() - start
         }
 
         fun transcribe(samples: FloatArray): JSONObject {
             check(!cancelRequested) { "Qwen cancelled" }
             val prepared = requireNotNull(encoder) { "Qwen QNN encoder was not prepared" }
+            val wallStart = SystemClock.elapsedRealtime()
+            val cpuStart = Process.getElapsedCpuTime()
+            val thermalStart = thermalStatus()
             val preprocessStart = SystemClock.elapsedRealtime()
             val mel = Qwen3Mel.compute(samples) { cancelRequested }
             val preprocessMs = SystemClock.elapsedRealtime() - preprocessStart
@@ -193,25 +209,53 @@ class Qwen3HybridWorkerService : Service() {
             require(features.all { it.isFinite() }) { "Nonfinite QNN encoder output" }
             val encoderMs = SystemClock.elapsedRealtime() - inferenceStart
             check(!cancelRequested) { "Qwen cancelled" }
-            ensureDecoder()
+            val decoderLoadMs = ensureDecoder() // First segment may spend seconds loading two ORT sessions.
             val decoderStart = SystemClock.elapsedRealtime()
-            val tokens = decode(features)
+            val decodeStats = decode(features)
             val decoderMs = SystemClock.elapsedRealtime() - decoderStart
-            val transcript = requireNotNull(tokenizer).decode(tokens)
-            return JSONObject().put("transcript", transcript).put("tokens", tokens.size)
+            val transcript = requireNotNull(tokenizer).decode(decodeStats.tokens)
+            val memory = Debug.MemoryInfo()
+            Debug.getMemoryInfo(memory)
+            val thermalEnd = thermalStatus()
+            return JSONObject().put("transcript", transcript).put("tokens", decodeStats.tokens.size)
                 .put("backend", "QNN-HTP FP16 encoder + CPU FP32 ONNX decoder")
-                .put("encoder_graph_calls", 1).put("preprocess_ms", preprocessMs)
+                .put("encoder_graph_calls", 1)
+                .put("encoder_execution_provider", "QNNExecutionProvider")
+                .put("decoder_execution_provider", "CPU")
+                .put("decoder_npu_graph_calls", 0)
+                .put("preprocess_ms", preprocessMs)
                 .put("encoder_ms", encoderMs).put("decoder_ms", decoderMs)
+                .put("decoder_load_ms", decoderLoadMs).put("decoder_load_count", decoderLoadCount)
+                .put("decoder_prefill_ms", decodeStats.prefillMs)
+                .put("decoder_step_ms", decodeStats.stepMs)
+                .put("decoder_steps", decodeStats.steps)
+                .put("decoder_embedding_io_ms", decodeStats.embeddingMs)
+                .put("decoder_argmax_ms", decodeStats.argmaxMs)
+                .put("decoder_intra_threads", 2)
+                .put("worker_cpu_ms", Process.getElapsedCpuTime() - cpuStart)
+                .put("worker_wall_ms", SystemClock.elapsedRealtime() - wallStart)
+                .put("worker_pss_kb", memory.totalPss)
+                .put("thermal_start", thermalStart).put("thermal_end", thermalEnd)
                 .put("experimental", true)
         }
 
-        private fun decode(features: FloatArray): List<Int> {
+        private fun thermalStatus(): Int = runCatching {
+            getSystemService(PowerManager::class.java).currentThermalStatus
+        }.getOrDefault(-1)
+
+        private fun decode(features: FloatArray): DecodeStats {
             val prefix = longArrayOf(151644,9125,198,151645,198,151644,882,198,151669)
             val suffix = longArrayOf(151670,151645,198,151644,77091,198)
             val prompt = prefix + LongArray(156) { 151676 } + suffix
             val positions = LongArray(prompt.size) { it.toLong() }
             val outputs = ArrayList<Int>(256)
             var current: OrtSession.Result? = null
+            val prefillStart = SystemClock.elapsedRealtime()
+            var prefillMs = 0L
+            var stepMs = 0L
+            var embeddingMs = 0L
+            var argmaxMs = 0L
+            var steps = 0
             try {
                 OnnxTensor.createTensor(env, LongBuffer.wrap(prompt), longArrayOf(1,prompt.size.toLong())).use { ids ->
                     OnnxTensor.createTensor(env, LongBuffer.wrap(positions), longArrayOf(1,prompt.size.toLong())).use { pos ->
@@ -223,24 +267,36 @@ class Qwen3HybridWorkerService : Service() {
                         }
                     }
                 }
+                prefillMs = SystemClock.elapsedRealtime() - prefillStart
+                val firstArgmaxStart = SystemClock.elapsedRealtime()
                 var token = nextToken(requireNotNull(current))
+                argmaxMs += SystemClock.elapsedRealtime() - firstArgmaxStart
                 outputs.add(token)
                 for (step in 0 until 255) {
-                    if (token == 151643 || token == 151645) return outputs
+                    if (token == 151643 || token == 151645) return DecodeStats(
+                        outputs, prefillMs, stepMs, steps, embeddingMs, argmaxMs
+                    )
                     if (cancelRequested) throw CancellationException("Qwen token generation cancelled")
+                    val embeddingStart = SystemClock.elapsedRealtime()
                     val inputEmbedding = readEmbedding(token)
+                    embeddingMs += SystemClock.elapsedRealtime() - embeddingStart
                     val prior = requireNotNull(current)
                     val keys = prior.get("present_keys").orElseThrow { IllegalStateException("Qwen keys output missing") } as OnnxTensor
                     val values = prior.get("present_values").orElseThrow { IllegalStateException("Qwen values output missing") } as OnnxTensor
+                    val stepStart = SystemClock.elapsedRealtime()
                     val next = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputEmbedding), longArrayOf(1,1,1024)).use { embeds ->
                         OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(prompt.size + step.toLong())), longArrayOf(1,1)).use { pos ->
                             requireNotNull(decoderStep).run(mapOf("input_embeds" to embeds,
                                 "position_ids" to pos, "past_keys" to keys, "past_values" to values))
                         }
                     }
+                    stepMs += SystemClock.elapsedRealtime() - stepStart
+                    steps++
                     current = next
                     prior.close()
+                    val argmaxStart = SystemClock.elapsedRealtime()
                     token = nextToken(next)
+                    argmaxMs += SystemClock.elapsedRealtime() - argmaxStart
                     outputs.add(token)
                 }
                 throw IllegalStateException("Qwen output truncated at tested 256-token generation cap")

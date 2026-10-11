@@ -413,7 +413,7 @@ class TranscriptionService : Service() {
                             val timedChunk = requireNotNull(currentChunk)
                             decodedEndMs = maxOf(decodedEndMs, timedChunk.endMs)
                             val samples = timedChunk.samples
-                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI) async(Dispatchers.IO) {
+                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI || request.engine == AsrEngine.QWEN3_HYBRID) async(Dispatchers.IO) {
                                 val decodeStarted = System.currentTimeMillis()
                                 val next = if (stream.hasNext()) stream.next() else null
                                 val decodeWorkMs = System.currentTimeMillis() - decodeStarted
@@ -442,8 +442,10 @@ class TranscriptionService : Service() {
                         ensureActive()
                         if (RecordingDeletionManager.isDeleting(request.id)) throw CancellationException("Recording deletion requested")
                         chunk++
-                        val processedBefore = timedChunk.startMs.coerceAtMost(total)
-                        val progressBefore = if (total > 0) ((processedBefore * 100) / total).toInt() else 0
+                        val processedBefore = TranscriptionProgressPolicy.monotonicProcessed(
+                            lastProcessedAudioEndMs, timedChunk.startMs, total
+                        )
+                        val progressBefore = TranscriptionProgressPolicy.activePercent(processedBefore, total)
                         val inferenceStarted = System.currentTimeMillis()
                         TranscriptionRuntime.update(
                             TranscriptionState(
@@ -487,7 +489,8 @@ class TranscriptionService : Service() {
                                     if (seconds % 5L == 0L) {
                                         getSystemService(NotificationManager::class.java).notify(
                                             NOTIFICATION_ID,
-                                            workingNotification("Transcribing • ${seconds}s elapsed$slowNote", null)
+                                            workingNotification("Transcribing • ${seconds}s elapsed$slowNote",
+                                                if (totalChunks > 1) current.progress else null)
                                         )
                                     }
                                 }
@@ -629,8 +632,10 @@ class TranscriptionService : Service() {
                         }
                         lastProcessedAudioEndMs = maxOf(lastProcessedAudioEndMs, chunkEndMs)
 
-                        val processed = timedChunk.endMs.coerceAtMost(total)
-                        val progress = if (total > 0) ((processed * 100) / total).toInt().coerceIn(0, 99) else 0
+                        val processed = TranscriptionProgressPolicy.monotonicProcessed(
+                            processedBefore, timedChunk.endMs, total
+                        )
+                        val progress = TranscriptionProgressPolicy.activePercent(processed, total)
                             TranscriptionRuntime.update(
                                 TranscriptionState(
                                     recordingId = request.id, active = true, progress = progress, processedMs = processed,
