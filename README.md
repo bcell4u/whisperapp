@@ -1,6 +1,10 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.26**, Android `versionCode=65026`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.27**, Android `versionCode=65027`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+
+## v6.5.27 APK audit backend-ID fix
+
+GitHub Actions now verifies `parakeet_npu`, `omi_npu`, and `qwen3_hybrid` backend identifiers in the built APK rather than the obsolete `Use NPU` label. The app successfully compiled in the v6.5.26 CI run; the old DEX label check caused its final audit to fail. No inference code, model packages, app identity, or signing settings changed.
 
 ## v6.5.26 experimental Qwen Stage I FP16 storage
 

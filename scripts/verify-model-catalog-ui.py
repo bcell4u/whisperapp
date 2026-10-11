@@ -12,6 +12,8 @@ settings = (base / 'ui/settings/SettingsSubscreens.kt').read_text()
 parakeet = (base / 'npu/NpuPackageStore.kt').read_text()
 transcript = (base / 'ui/TranscriptLazyContent.kt').read_text()
 version = dict(line.split('=', 1) for line in (root / 'version.properties').read_text().splitlines() if '=' in line)
+engine_ids = (base / 'transcribe/AsrEngine.kt').read_text()
+workflow = (root / '.github/workflows/build.yml').read_text()
 
 # Qwen is intentionally a third independent NPU card.  The experimental
 # notice belongs to Qwen alone; do not weaken the previous Parakeet/Omi UI
@@ -31,6 +33,12 @@ def only_qwen_experimental(source):
                for line in source.splitlines())
 
 checks = {
+    'APK checks concrete NPU backend IDs, not removed UI labels':
+        all(f"require_dex_string '{engine}'" in workflow
+            for engine in ('parakeet_npu', 'omi_npu', 'qwen3_hybrid'))
+        and all(f'"{engine}"' in engine_ids
+                for engine in ('parakeet_npu', 'omi_npu', 'qwen3_hybrid'))
+        and "require_dex_string 'Use NPU'" not in workflow,
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
     'three independent NPU cards share model card layout': models.count('ModelCatalogCard(') >= 5

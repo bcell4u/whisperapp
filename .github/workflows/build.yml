@@ -339,8 +339,11 @@ jobs:
           require_dex_string 'NVIDIA Parakeet TDT 0.6B v3'
           require_dex_string 'Omi Med STT v1 Q8_0 (0.6B)'
           require_dex_string 'Qwen3-ASR 1.7B'
-          require_dex_string 'Use NPU'
+          # Audit the actual selectable backend IDs, not obsolete UI button text.
+          # All three NPU paths must survive minification in the built APK.
           require_dex_string 'parakeet_npu'
+          require_dex_string 'omi_npu'
+          require_dex_string 'qwen3_hybrid'
           require_dex_string 'Create speaker transcript'
           # Catch class stripping / missing AAR classes, not just missing .so files.
           bash "$PROJECT_DIR/scripts/audit-speaker-dex.sh" "$APK" "$ANDROID_HOME/build-tools/35.0.0/dexdump"
