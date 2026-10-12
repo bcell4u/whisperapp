@@ -100,6 +100,20 @@ checks = {
     'release documentation matches version.properties':
         f"Current source release: v{version['releaseVersion']}" in (root / 'README.md').read_text()
         and f"This source targets v{version['releaseVersion']}" in (root / 'VERSIONING.md').read_text(),
+    'Qwen availability always refreshed independently of other download IDs':
+        'LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {\n        refreshQwenState()' in models
+        and 'LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {\n        refreshQwenState()' in setup
+        and 'modelDownload.modelId == null || (modelDownload.modelId == Qwen3HybridPackageStore.DOWNLOAD_ID' not in models,
+    'Qwen download guarded against already installed package in both menus':
+        all('val actual = refreshQwenState()' in x and
+            'if (actual == NpuArchiveState.READY)' in x and
+            'onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID)' in x
+            for x in (models, setup)),
+    'Qwen detection stays off main thread and can be manually rescanned':
+        'withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }' in models
+        and 'withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }' in setup
+        and 'Recheck installed Qwen model' in models
+        and 'qwenStateChecking' in models and 'qwenStateChecking' in setup,
     'model package identity and pinned revision preserved':
         'const val REVISION = "qnn-2.50-experimental"' in omi
         and 'whisperrecorder_omi_med_v2_sm8850_v81_experimental_qnn' in omi,

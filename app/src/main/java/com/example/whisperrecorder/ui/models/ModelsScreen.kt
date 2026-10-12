@@ -64,6 +64,7 @@ internal fun ModelsScreen(
     var npuArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var omiArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenStateChecking by remember { mutableStateOf(true) }
     var qwenDeleteConfirm by remember { mutableStateOf(false) }
     var qwenLegacyDeleteConfirm by remember { mutableStateOf(false) }
     var qwenCompactDeleteConfirm by remember { mutableStateOf(false) }
@@ -132,10 +133,19 @@ internal fun ModelsScreen(
         }
     }
 
+    // Independently recheck app-private Qwen files whenever this screen opens or a download
+    // state changes. The previous guard skipped this check if the last download was for
+    // Parakeet/Omi/Whisper, leaving a working Qwen install falsely shown as "Download".
+    suspend fun refreshQwenState(): NpuArchiveState {
+        qwenStateChecking = true
+        return try {
+            withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }.also {
+                qwenArchiveState = it
+            }
+        } finally { qwenStateChecking = false }
+    }
     LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
-        if (modelDownload.modelId == null || (modelDownload.modelId == Qwen3HybridPackageStore.DOWNLOAD_ID && !modelDownload.active)) {
-            qwenArchiveState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
-        }
+        refreshQwenState()
     }
 
     if (qwenDeleteConfirm) {
@@ -297,7 +307,7 @@ internal fun ModelsScreen(
                     installed = qwenArchiveState == NpuArchiveState.READY,
                     persistent = false,
                     selected = selectedEngine == AsrEngine.QWEN3_HYBRID.id,
-                    restoring = npuActionRunning || localRestoringId != null,
+                    restoring = npuActionRunning || localRestoringId != null || qwenStateChecking,
                     partialDownload = qwenArchiveState == NpuArchiveState.INCOMPLETE,
                     modelDownload = modelDownload,
                     removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
@@ -313,12 +323,35 @@ internal fun ModelsScreen(
                             finally { npuActionRunning = false }
                         }
                     },
-                    onDownload = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
+                    onDownload = {
+                        scope.launch {
+                            // A download button rendered from stale UI state must never trigger
+                            // a needless multi-gigabyte Qwen download. Recheck local files first.
+                            val actual = refreshQwenState()
+                            if (actual == NpuArchiveState.READY) {
+                                status = "Existing Qwen model detected; no download needed. Tap Use."
+                            } else {
+                                onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID)
+                            }
+                        }
+                    },
                     onCancel = onCancelModelDownload,
                     onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW,
                         Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}/tree/main"))) },
                     onRemove = { qwenDeleteConfirm = true }
                 )
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val actual = refreshQwenState()
+                        status = when (actual) {
+                            NpuArchiveState.READY -> "Installed Qwen model found. You can select Use without downloading."
+                            NpuArchiveState.INCOMPLETE -> "Qwen files found but package verification is incomplete. Use Resume to repair, without deleting existing files."
+                            NpuArchiveState.NOT_INSTALLED -> "No installed Qwen package found in the app's recognized folders."
+                        }
+                    }
+                }, enabled = !qwenStateChecking && !modelDownload.active && !npuActionRunning) {
+                    Text("Recheck installed Qwen model")
+                }
                 OutlinedButton(onClick = {
                     scope.launch {
                         npuActionRunning = true

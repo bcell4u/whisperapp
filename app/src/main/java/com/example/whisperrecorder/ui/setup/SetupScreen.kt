@@ -70,6 +70,7 @@ internal fun SetupScreen(
     var npuState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var omiState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenStateChecking by remember { mutableStateOf(true) }
     var npuChecking by remember { mutableStateOf(false) }
 
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -143,12 +144,23 @@ internal fun SetupScreen(
         if (treeUri != null && !modelDownload.active) {
             npuState = withContext(Dispatchers.IO) { NpuPackageStore.archiveState(context) }
             omiState = withContext(Dispatchers.IO) { OmiNpuPackageStore.archiveState(context) }
-            qwenState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
         } else if (treeUri == null) {
             npuState = NpuArchiveState.NOT_INSTALLED
             omiState = withContext(Dispatchers.IO) { OmiNpuPackageStore.archiveState(context) }
-            qwenState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
         }
+    }
+    // Qwen is stored in app-private files, independent of the SAF working directory
+    // and whichever other model was last downloaded. Always check it on entry.
+    suspend fun refreshQwenState(): NpuArchiveState {
+        qwenStateChecking = true
+        return try {
+            withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }.also {
+                qwenState = it
+            }
+        } finally { qwenStateChecking = false }
+    }
+    LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
+        refreshQwenState()
     }
     LaunchedEffect(modelDownload.status, modelDownload.error) {
         if (modelDownload.status.isNotBlank()) status = modelDownload.status
@@ -242,9 +254,18 @@ internal fun SetupScreen(
                     details = ModelCardDetails(Qwen3HybridPackageStore.DOWNLOAD_ID, Qwen3HybridPackageStore.DISPLAY_NAME,
                         "Apache 2.0 · Experimental hybrid, not clinically validated", Qwen3HybridPackageStore.packageDescription(context), 30),
                     installed = qwenState == NpuArchiveState.READY, persistent = false,
-                    selected = selectedEngine == "qwen3_hybrid", restoring = npuChecking || treeUri == null || localRestoringId != null,
+                    selected = selectedEngine == "qwen3_hybrid", restoring = npuChecking || localRestoringId != null || qwenStateChecking,
                     partialDownload = qwenState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,
-                    onDownload = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
+                    onDownload = {
+                        scope.launch {
+                            val actual = refreshQwenState()
+                            if (actual == NpuArchiveState.READY) {
+                                status = "Existing Qwen model detected. No download needed; tap Use."
+                            } else {
+                                onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID)
+                            }
+                        }
+                    },
                     onCancel = onCancelModelDownload,
                     onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}/tree/main"))) },
                     onUse = {

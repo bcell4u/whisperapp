@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.28
-versionName=6.5.28
-versionCode=65029
+releaseVersion=6.5.30
+versionName=6.5.30
+versionCode=65030
 ```
 
-This source targets v6.5.29. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.30. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -103,3 +103,7 @@ metadata advances to `versionCode=65023` with no package ID or signing changes.
 No Android APK or S26 inference result is claimed for this release.
 
 - v6.5.28: Qwen EPContext relative path + app-private `whisperapp/models` persistence/migration; app version code 65028.
+
+### v6.5.30
+
+Recheck app-private Qwen model availability whenever Models & downloads or first-launch setup opens, regardless of which model was last downloaded. Fix stale Download button for already installed Qwen model. Recheck the package before starting any Qwen download; provide a manual installed-model recheck, preserve v1-v3 model storage, hashes, and all other backends. `versionCode=65030`.
