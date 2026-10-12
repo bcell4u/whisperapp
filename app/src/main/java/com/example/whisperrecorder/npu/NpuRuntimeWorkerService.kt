@@ -1,5 +1,6 @@
 package com.example.whisperrecorder.npu
 
+import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtEpDevice
@@ -60,6 +61,9 @@ class NpuRuntimeWorkerService : Service() {
         block().put("operation", operation).put("worker_pid", Process.myPid()).toString()
     } catch (t: Throwable) {
         engine.log("$operation FAIL ${t::class.java.name}: ${t.message}")
+        if (t !is java.util.concurrent.CancellationException) {
+            runCatching { DiagnosticLogger.appendError(applicationContext, "npu/$operation", t) }
+        }
         JSONObject()
             .put("ok", false)
             .put("operation", operation)

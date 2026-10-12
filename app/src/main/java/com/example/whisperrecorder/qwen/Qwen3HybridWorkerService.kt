@@ -13,11 +13,13 @@ import android.os.Process
 import android.os.SharedMemory
 import android.os.SystemClock
 import android.system.Os
+import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.npu.NpuEpContextModel
 import com.example.whisperrecorder.npu.NpuGraphContract
 import com.example.whisperrecorder.npu.NpuTensorContract
 import com.example.whisperrecorder.npu.Qwen3ByteTokenizer
 import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
+import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
 import com.example.whisperrecorder.npu.Qwen3Mel
 import org.json.JSONObject
 import java.io.File
@@ -60,6 +62,9 @@ class Qwen3HybridWorkerService : Service() {
     private inline fun response(step: String, action: () -> JSONObject): String = try {
         action().put("ok", true).put("stage", step).toString()
     } catch (t: Throwable) {
+        if (t !is CancellationException) {
+            runCatching { DiagnosticLogger.appendError(applicationContext, "qwen3-hybrid/$step", t) }
+        }
         JSONObject().put("ok", false).put("stage", step)
             .put("error", "${t.javaClass.simpleName}: ${t.message ?: "unknown"}")
             .put("experimental", true).toString()
@@ -73,11 +78,28 @@ class Qwen3HybridWorkerService : Service() {
 
     private inner class Runtime : AutoCloseable {
         private val env = OrtEnvironment.getEnvironment()
-        private val modelDir: File = Qwen3HybridPackageStore.verifiedFolder(applicationContext)
+        private var sharedFallbackReason = "none"
+        private var runtimeAssets: Qwen3HybridPackageStore.RuntimeAssets = openRuntimeAssets()
+        private val modelDir: File get() = runtimeAssets.directory
+        private val decoderThreads: Int = QwenDecoderPerformancePolicy.threads(applicationContext)
+
+        private fun openRuntimeAssets(): Qwen3HybridPackageStore.RuntimeAssets {
+            // Like Parakeet, hold seekable DocumentsProvider descriptors for the lifetime
+            // of ONNX/QNN sessions. The bridge directory contains tiny symlinks, not weights.
+            Qwen3HybridPackageStore.cleanupAbandonedRuntime(applicationContext)
+            return try {
+                Qwen3HybridPackageStore.openSharedRuntime(applicationContext)
+                    ?: Qwen3HybridPackageStore.openFallbackRuntime(applicationContext)
+            } catch (t: Throwable) {
+                sharedFallbackReason = "${t.javaClass.simpleName}: ${t.message}".take(240)
+                Qwen3HybridPackageStore.openFallbackRuntime(applicationContext)
+            }
+        }
+
         // External EPContext paths are resolved relative to the ONNX wrapper's directory.
         // Keep this tiny generated ONNX beside the SHA-256 verified QNN context, not in cacheDir.
         // The original context stays installed and is never copied or modified.
-        private val encoderWrapper = File(modelDir, Qwen3HybridPackageStore.EP_CONTEXT_WRAPPER_NAME)
+        private val encoderWrapper: File get() = File(modelDir, Qwen3HybridPackageStore.EP_CONTEXT_WRAPPER_NAME)
         private var qnnOptions: OrtSession.SessionOptions? = null
         private var encoder: OrtSession? = null
         private var decoderInit: OrtSession? = null
@@ -85,13 +107,34 @@ class Qwen3HybridWorkerService : Service() {
         private var embedding: RandomAccessFile? = null
         private var tokenizer: Qwen3ByteTokenizer? = null
         private var decoderLoadCount = 0
-        private val contract = NpuGraphContract("qwen3_encoder", "qwen3_asr_encoder", "encoder-qnn-fp16.bin",
+        private val contract get() = NpuGraphContract("qwen3_encoder", "qwen3_asr_encoder", "encoder-qnn-fp16.bin",
             File(modelDir, "encoder-qnn-fp16.bin").length(),
             listOf(NpuTensorContract("mel", longArrayOf(1,128,1200))),
             listOf(NpuTensorContract("audio_features", longArrayOf(1,156,1024))))
 
         fun prepare(): JSONObject {
             if (encoder != null) return JSONObject().put("encoder_loaded", true).put("experimental", true)
+            return try {
+                val result = prepareCore()
+                // A successful descriptor bridge must also load both external-data ONNX
+                // decoders. Catch unsupported SAF/proc-fd providers before transcription.
+                if (runtimeAssets.mode == "saf-proc-fd") ensureDecoder()
+                result.put("model_storage_mode", runtimeAssets.mode)
+                    .put("model_storage_fallback", sharedFallbackReason)
+                    .put("decoder_threads", decoderThreads)
+            } catch (first: Throwable) {
+                if (runtimeAssets.mode != "saf-proc-fd") throw first
+                sharedFallbackReason = "${first.javaClass.simpleName}: ${first.message}".take(240)
+                closeModels()
+                runtimeAssets.close()
+                runtimeAssets = Qwen3HybridPackageStore.openFallbackRuntime(applicationContext)
+                prepareCore().put("model_storage_mode", runtimeAssets.mode)
+                    .put("model_storage_fallback", sharedFallbackReason)
+                    .put("decoder_threads", decoderThreads)
+            }
+        }
+
+        private fun prepareCore(): JSONObject {
             cancelRequested = false
             require(Build.MODEL.equals("SM-S942U", ignoreCase = true)) {
                 "Qwen QNN package targets SM-S942U, not ${Build.MODEL}"
@@ -163,8 +206,17 @@ class Qwen3HybridWorkerService : Service() {
         private fun ensureDecoder(): Long {
             if (decoderInit != null && decoderStep != null) return 0L
             val start = SystemClock.elapsedRealtime()
-            val initOpts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
-            val stepOpts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
+            // Allow a controlled S26 A/B test: 2 cores (balanced) or 4 (speed trial).
+            // Disabling idle thread-pool spinning reduces unnecessary CPU heating between
+            // token steps, without changing FP32 numerical operations or stop conditions.
+            fun cpuOptions() = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(decoderThreads)
+                setInterOpNumThreads(1)
+                addConfigEntry("session.intra_op.allow_spinning", "0")
+                addConfigEntry("session.inter_op.allow_spinning", "0")
+            }
+            val initOpts = cpuOptions()
+            val stepOpts = cpuOptions()
             try {
                 decoderInit = env.createSession(File(modelDir,"decoder_init.onnx").absolutePath, initOpts)
                 decoderStep = env.createSession(File(modelDir,"decoder_step.onnx").absolutePath, stepOpts)
@@ -214,9 +266,16 @@ class Qwen3HybridWorkerService : Service() {
             val decodeStats = decode(features)
             val decoderMs = SystemClock.elapsedRealtime() - decoderStart
             val transcript = requireNotNull(tokenizer).decode(decodeStats.tokens)
+            if (runtimeAssets.mode == "saf-proc-fd") {
+                // A full native QNN encoder + CPU decoder transcription has succeeded
+                // with NO private model-weight copy. This permits an explicit reclaim.
+                runCatching { Qwen3HybridPackageStore.noteSuccessfulSharedTranscription(applicationContext, runtimeAssets.stage) }
+            }
             val memory = Debug.MemoryInfo()
             Debug.getMemoryInfo(memory)
             val thermalEnd = thermalStatus()
+            val thermalGuardTriggered = decoderThreads == 4 && thermalEnd >= PowerManager.THERMAL_STATUS_SEVERE
+            if (thermalGuardTriggered) QwenDecoderPerformancePolicy.setFast(applicationContext, false)
             return JSONObject().put("transcript", transcript).put("tokens", decodeStats.tokens.size)
                 .put("backend", "QNN-HTP FP16 encoder + CPU FP32 ONNX decoder")
                 .put("encoder_graph_calls", 1)
@@ -229,15 +288,23 @@ class Qwen3HybridWorkerService : Service() {
                 .put("decoder_prefill_ms", decodeStats.prefillMs)
                 .put("decoder_step_ms", decodeStats.stepMs)
                 .put("decoder_steps", decodeStats.steps)
+                .put("decoder_tokens_per_second", if (decoderMs > 0L) decodeStats.tokens.size * 1000.0 / decoderMs else 0.0)
+                .put("decoder_avg_step_ms", if (decodeStats.steps > 0) stepMsOrZero(decodeStats) else 0.0)
+                .put("fast_mode_thermal_guard", thermalGuardTriggered)
                 .put("decoder_embedding_io_ms", decodeStats.embeddingMs)
                 .put("decoder_argmax_ms", decodeStats.argmaxMs)
-                .put("decoder_intra_threads", 2)
+                .put("decoder_intra_threads", decoderThreads)
+                .put("model_storage_mode", runtimeAssets.mode)
+                .put("model_storage_fallback", sharedFallbackReason)
                 .put("worker_cpu_ms", Process.getElapsedCpuTime() - cpuStart)
                 .put("worker_wall_ms", SystemClock.elapsedRealtime() - wallStart)
                 .put("worker_pss_kb", memory.totalPss)
                 .put("thermal_start", thermalStart).put("thermal_end", thermalEnd)
                 .put("experimental", true)
         }
+
+        private fun stepMsOrZero(stats: DecodeStats): Double =
+            if (stats.steps > 0) stats.stepMs.toDouble() / stats.steps else 0.0
 
         private fun thermalStatus(): Int = runCatching {
             getSystemService(PowerManager::class.java).currentThermalStatus
@@ -330,15 +397,20 @@ class Qwen3HybridWorkerService : Service() {
             return FloatArray(1024).also { buf.get(it) }
         }
 
-        override fun close() {
+        private fun closeModels() {
             runCatching { decoderStep?.close() }; decoderStep = null
             runCatching { decoderInit?.close() }; decoderInit = null
             runCatching { encoder?.close() }; encoder = null
             runCatching { embedding?.close() }; embedding = null
             tokenizer = null
             runCatching { qnnOptions?.close() }; qnnOptions = null
-            // Never delete the installed .bin or decoder weights. Remove only our generated
-            // ONNX wrapper and old-version scratch files, including after a failed prepare().
+        }
+
+        override fun close() {
+            closeModels()
+            // Contexts + external weights must stay reachable while ORT sessions exist.
+            // Only after closing them may we unlink proc-fd bridges or staged files.
+            runCatching { runtimeAssets.close() }
             check(Qwen3HybridPackageStore.clearTemporaryTestFiles(applicationContext)) {
                 "Qwen temporary wrapper cleanup failed"
             }

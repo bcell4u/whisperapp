@@ -1,6 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.30**, Android `versionCode=65029`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.33**, Android `versionCode=65033`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## v6.5.28 Qwen EPContext relative-path fix
 
@@ -121,3 +121,10 @@ optimizes long-transcript cue partitioning. See `VERSIONING.md` for the change h
 The existing signed release workflow remains authoritative for Android compilation.
 
 Qwen 0.6B model files are persisted under app-private `whisperapp/models/qwen3-asr-0.6b` and reused across in-place upgrades; older Qwen folders are migrated by atomic rename where available. App uninstall or clearing storage still deletes them.
+
+### v6.5.32 Qwen storage/speed trial
+Qwen now attempts Parakeet-style SAF descriptor loading from the user-selected Whisperapp/Models directory. A failed bridge falls back safely to the already-installed private copy or an automatically cleaned transient copy, without a new download. After a successful shared-folder transcription, Settings can reclaim the redundant private copy on explicit confirmation. A 2-vs-4 CPU decoder thread control allows a measured speed/heat comparison; 2 threads remains the default. See RELEASE-v6.5.32.md.
+
+### v6.5.33 diagnostics maintenance
+
+The existing Diagnostics logger now creates bounded, best-effort redacted ZIPs on caught Qwen/NPU/app errors. Settings > Diagnostics can create/export a snapshot, export the newest ZIP, or manually delete saved diagnostic archives without deleting original logs, models or recordings. See RELEASE-v6.5.33.md.

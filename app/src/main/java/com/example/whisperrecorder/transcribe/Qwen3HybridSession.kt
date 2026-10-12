@@ -20,7 +20,7 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
             require(outcome.optBoolean("ok")) {
                 "Qwen hybrid initialization failed: ${outcome.optString("error")}. This does not affect existing backends."
             }
-            nativeInfo = "EXPERIMENTAL Qwen3 0.6B · QNN FP16 encoder + CPU FP32 ONNX decoder; ${outcome.optString("cpu_fallback")}; golden error ${outcome.optDouble("golden_max_abs")}"
+            nativeInfo = "EXPERIMENTAL Qwen3 0.6B · QNN FP16 encoder + CPU FP32 ONNX decoder; ${outcome.optString("cpu_fallback")}; golden error ${outcome.optDouble("golden_max_abs")}; storage=${outcome.optString("model_storage_mode")}; storageFallback=${outcome.optString("model_storage_fallback")}"
         } catch (t: Throwable) {
             client.close()
             throw t
@@ -44,6 +44,11 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                     append(" encoderEP=${response.optString("encoder_execution_provider")}")
                     append(" decoderEP=${response.optString("decoder_execution_provider")}")
                     append(" decoderNpuGraphCalls=${response.optInt("decoder_npu_graph_calls")}")
+                    append(" qwenStorage=${response.optString("model_storage_mode")}")
+                    append(" qwenStorageFallback=${response.optString("model_storage_fallback").replace(' ', '_')}")
+                    append(" decoderTokPerSec=${response.optDouble("decoder_tokens_per_second", 0.0)}")
+                    append(" decoderAvgStepMs=${response.optDouble("decoder_avg_step_ms", 0.0)}")
+                    append(" fastThermalGuard=${response.optBoolean("fast_mode_thermal_guard")}")
                     for ((label, field) in listOf(
                         "preprocessMs" to "preprocess_ms", "encoderMs" to "encoder_ms",
                         "decoderLoadMs" to "decoder_load_ms", "decoderMs" to "decoder_ms",

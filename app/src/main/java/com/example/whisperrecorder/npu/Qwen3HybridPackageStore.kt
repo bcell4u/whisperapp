@@ -1,6 +1,14 @@
 package com.example.whisperrecorder.npu
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.os.StatFs
+import android.system.Os
+import android.system.OsConstants
+import java.io.FileInputStream
+import com.example.whisperrecorder.data.SafStorage
+import com.example.whisperrecorder.data.WorkspaceStorage
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.models.ModelFileOps
 import kotlinx.coroutines.CancellationException
@@ -8,9 +16,9 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** Stage G v1, Stage H compact v2 and Stage I FP16-storage v3 ONNX models need real adjacent external-data files.
- * Therefore Qwen uses one versioned app-private copy, not an additional SAF + staging duplicate.
- * It is NEVER an automatic first-run selection and never overwrites other ASR models.
+/** Stage G/H/I archives use the SAME SAF Whisperapp/Models workspace as Parakeet/Omi.
+ * Runtime first tries seekable archive FDs with temporary /proc/self/fd links.
+ * Private or transient copies are fallback only, and are never downloaded twice.
  */
 internal object Qwen3HybridPackageStore {
     const val DOWNLOAD_ID = "qwen3-0.6b-sm8850-v81-hybrid"
@@ -39,11 +47,12 @@ internal object Qwen3HybridPackageStore {
     private const val MAX_PACKAGE_BYTES = 9_000_000_000L
     data class Asset(val name: String, val bytes: Long, val sha256: String)
 
-    /** Durable app-private model storage: files/whisperapp/models/qwen3-asr-0.6b/.
-     * Survives recording sessions, process death, reboots and in-place app upgrades.
-     * Like all Android app-private files, it does not survive uninstall / Clear app storage.
+    /** Legacy app-private working directory, preserved until an explicit verified reclaim.
+     * New shared-descriptor sessions avoid requiring another permanent model copy.
      */
     private const val PERSISTENT_ROOT = "whisperapp/models/qwen3-asr-0.6b"
+    const val VISIBLE_PACKAGE = "qwen3-asr-0.6b"
+    const val VISIBLE_PATH = "Whisperapp/Models/qwen3-asr-0.6b"
     private const val PREVIOUS_ROOT = "qwen3-hybrid"
     private val supportedStages = listOf("stage-i-fp16-0.6b", "stage-h-compact-0.6b", "stage-g-0.6b")
     private val migrationLock = Any()
@@ -79,6 +88,326 @@ internal object Qwen3HybridPackageStore {
             persistent.exists() -> persistent // Resume partial new-layout downloads.
             previous.exists() -> previous // Resume the original download without re-fetching.
             else -> persistent
+        }
+    }
+
+    /** SAF archive is the durable, user-visible master. It is never treated as a direct ONNX path. */
+    private data class VisibleLocation(val tree: Uri, val directory: Uri)
+    private fun visibleLocation(context: Context, stage: String, create: Boolean): VisibleLocation? {
+        require(stage in supportedStages)
+        val tree = AppPrefs.getSaveTree(context) ?: return null
+        val models = if (create) WorkspaceStorage.modelsDirectory(context, tree)
+            else runCatching { WorkspaceStorage.modelsDirectory(context, tree) }.getOrNull() ?: return null
+        val root = if (create) SafStorage.getOrCreateChildDirectory(context, tree, models, VISIBLE_PACKAGE)
+            else SafStorage.findChildDirectory(context, tree, models, VISIBLE_PACKAGE) ?: return null
+        val directory = if (create) SafStorage.getOrCreateChildDirectory(context, tree, root, stage)
+            else SafStorage.findChildDirectory(context, tree, root, stage) ?: return null
+        return VisibleLocation(tree, directory)
+    }
+
+    private fun visibleItems(context: Context, loc: VisibleLocation): Map<String, SafStorage.TreeDocument> =
+        SafStorage.listDirectory(context, loc.tree, loc.directory).associateBy { it.name }
+
+    private fun readVisibleText(context: Context, uri: Uri, maxBytes: Int = 2_000_000): String {
+        val bytes = requireNotNull(context.contentResolver.openInputStream(uri)).use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (out.size() <= maxBytes) {
+                val count = input.read(buffer)
+                if (count == -1) break
+                out.write(buffer, 0, count)
+            }
+            out.toByteArray()
+        }
+        require(bytes.size <= maxBytes) { "Qwen metadata is unexpectedly large" }
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private fun visibleState(context: Context, stage: String, version: Int): NpuArchiveState {
+        val loc = runCatching { visibleLocation(context, stage, false) }.getOrNull()
+            ?: return NpuArchiveState.NOT_INSTALLED
+        return runCatching {
+            val documents = visibleItems(context, loc)
+            val manifestDoc = documents[MANIFEST] ?: return@runCatching NpuArchiveState.INCOMPLETE
+            val contractDoc = documents[CONTRACT] ?: return@runCatching NpuArchiveState.INCOMPLETE
+            val readyDoc = documents[READY] ?: return@runCatching NpuArchiveState.INCOMPLETE
+            val manifestText = readVisibleText(context, manifestDoc.uri)
+            val parsed = JSONObject(manifestText)
+            val required = expected(parsed, version)
+            val ready = JSONObject(readVisibleText(context, readyDoc.uri))
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(manifestText.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+            require(ready.getString("manifest_sha256").equals(digest, ignoreCase = true))
+            checkContract(JSONObject(readVisibleText(context, contractDoc.uri)), parsed, version)
+            require(required.all { documents[it.name]?.size == it.bytes })
+            NpuArchiveState.READY
+        }.getOrDefault(NpuArchiveState.INCOMPLETE)
+    }
+
+    fun visibleArchiveReady(context: Context): Boolean = supportedStages.withIndex().any { (index, stage) ->
+        visibleState(context, stage, 3 - index) == NpuArchiveState.READY
+    }
+
+    private fun archiveDigest(context: Context, uri: Uri, cancelled: () -> Boolean): String {
+        val hash = MessageDigest.getInstance("SHA-256")
+        requireNotNull(context.contentResolver.openInputStream(uri)).buffered(1024 * 1024).use { stream ->
+            val buffer = ByteArray(1024 * 1024)
+            while (true) {
+                if (cancelled()) throw CancellationException("Qwen archive operation cancelled")
+                val count = stream.read(buffer)
+                if (count == -1) break
+                hash.update(buffer, 0, count)
+            }
+        }
+        return hash.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** One-time offline migration / fresh-download archive. This COPIES existing local bytes,
+     * never downloads or deletes the verified runtime package. READY.json is published LAST.
+     * ONNX Runtime requires an app-private working copy for its external-data relative paths.
+     */
+    fun saveInstalledToWhisperappModels(
+        context: Context,
+        cancelled: () -> Boolean = { false },
+        progress: (Int, Long, Long, String) -> Unit = { _, _, _, _ -> }
+    ): String {
+        val dir = verifiedFolder(context)
+        val stage = dir.name
+        val version = when(stage) { "stage-i-fp16-0.6b" -> 3; "stage-h-compact-0.6b" -> 2; else -> 1 }
+        val manifest = File(dir, MANIFEST)
+        val assets = expected(JSONObject(manifest.readText()), version)
+        val loc = requireNotNull(visibleLocation(context, stage, true)) {
+            "Choose the existing Whisperapp storage folder first"
+        }
+        val files = listOf(MANIFEST, CONTRACT) + assets.map { it.name } + READY
+        val total = files.sumOf { File(dir, it).length() }
+        var done = 0L
+        for (name in files) {
+            if (cancelled()) throw CancellationException("Qwen archiving cancelled")
+            val source = File(dir, name)
+            require(source.isFile) { "Missing verified Qwen artifact: $name" }
+            val digest = ModelFileOps.digest(source, "SHA-256", cancelled)
+            var existing = visibleItems(context, loc)[name]
+            val alreadyValid = existing != null && existing.size == source.length() &&
+                archiveDigest(context, existing.uri, cancelled).equals(digest, true)
+            if (!alreadyValid) {
+                val copied = SafStorage.copyFileToDirectory(context, source, loc.tree, loc.directory,
+                    "application/octet-stream", name)
+                require(archiveDigest(context, copied, cancelled).equals(digest, true)) {
+                    "Qwen archive checksum mismatch: $name; runtime copy was preserved"
+                }
+                existing = visibleItems(context, loc)[name]
+                require(existing?.size == source.length()) { "Qwen archive size mismatch: $name" }
+            }
+            done += source.length()
+            progress(((done * 100L) / total).toInt().coerceIn(0, 100), done, total,
+                "Saving Qwen/$stage/$name to Whisperapp/Models")
+        }
+        require(visibleState(context, stage, version) == NpuArchiveState.READY) {
+            "Qwen public archive verification failed; original runtime copy preserved"
+        }
+        return "$VISIBLE_PATH/$stage"
+    }
+
+    /** Restore missing local ONNX/QNN runtime bytes from the SAF master, without network access. */
+    private fun restoreFromVisibleArchive(context: Context, stage: String, version: Int): Boolean {
+        if (visibleState(context, stage, version) != NpuArchiveState.READY) return false
+        val loc = visibleLocation(context, stage, false) ?: return false
+        val documents = visibleItems(context, loc)
+        val parsed = JSONObject(readVisibleText(context, documents.getValue(MANIFEST).uri))
+        val required = expected(parsed, version)
+        val dir = stageFolder(context, stage, version)
+        require(dir.mkdirs() || dir.isDirectory)
+        val desired = listOf(MANIFEST, CONTRACT) + required.map { it.name } + READY
+        for (name in desired) {
+            val doc = documents.getValue(name)
+            val file = File(dir, name)
+            val expectedHash = required.firstOrNull { it.name == name }?.sha256
+                ?: archiveDigest(context, doc.uri) { false }
+            if (ModelFileOps.verify(file, doc.size, "SHA-256", expectedHash)) continue
+            ModelFileOps.restoreDocument(context, doc.uri, file) { incoming ->
+                require(ModelFileOps.verify(incoming, doc.size, "SHA-256", expectedHash)) {
+                    "Qwen restored artifact failed SHA-256: $name"
+                }
+            }
+        }
+        require(localState(dir, version) == NpuArchiveState.READY)
+        return true
+    }
+
+
+    /** File-descriptor bridge from the canonical SAF archive (Parakeet-style).
+     * A private directory contains only symlinks to already-open archive descriptors,
+     * never permanent weight copies. All descriptors MUST outlive ORT sessions.
+     * If an Android DocumentsProvider supplies nonseekable descriptors, caller can
+     * fall back to the older local model or transient verified materialization.
+     */
+    class RuntimeAssets internal constructor(
+        val directory: File,
+        val mode: String,
+        val stage: String,
+        private val owned: Boolean,
+        private val handles: List<ParcelFileDescriptor>
+    ) : AutoCloseable {
+        override fun close() {
+            // ORT sessions must already have closed before descriptors or links go away.
+            if (owned) directory.deleteRecursively()
+            handles.forEach { runCatching { it.close() } }
+        }
+    }
+
+    private fun sharedCache(context: Context): File = File(context.cacheDir, "qwen3-shared-fd-runtime")
+    private fun transientCache(context: Context): File = File(context.filesDir, "qwen3-verified-transient-runtime")
+
+    /** Recover abandoned Qwen-only temporary files after a killed process. */
+    fun cleanupAbandonedRuntime(context: Context): Boolean = listOf(sharedCache(context), transientCache(context))
+        .all { !it.exists() || (it.deleteRecursively() && !it.exists()) }
+
+    private fun bestVisibleStage(context: Context): Pair<String, Int>? =
+        supportedStages.zip(listOf(3, 2, 1)).firstOrNull { (stage, version) ->
+            visibleState(context, stage, version) == NpuArchiveState.READY
+        }
+
+    /** Hash-check every SAF asset on worker startup, not just its displayed file size.
+     * /proc/self/fd symlinks need actual seekable file descriptors. Never resolve arbitrary
+     * paths from the SAF provider and never write model contents into app-private storage.
+     */
+    fun openSharedRuntime(context: Context): RuntimeAssets? {
+        val (stage, version) = bestVisibleStage(context) ?: return null
+        val loc = requireNotNull(visibleLocation(context, stage, false))
+        val documents = visibleItems(context, loc)
+        val metadata = readVisibleText(context, documents.getValue(MANIFEST).uri)
+        val assets = expected(JSONObject(metadata), version)
+        val directory = sharedCache(context)
+        require(!directory.exists() || directory.deleteRecursively()) { "Stale Qwen descriptor bridge could not be cleared" }
+        require(directory.mkdirs())
+        val descriptors = ArrayList<ParcelFileDescriptor>()
+        try {
+            for (asset in assets) {
+                val source = requireNotNull(documents[asset.name]) { "Missing saved Qwen asset ${asset.name}" }
+                require(source.size == asset.bytes) { "Shared Qwen file size changed: ${asset.name}" }
+                val handle = requireNotNull(context.contentResolver.openFileDescriptor(source.uri, "r")) {
+                    "Cannot open Qwen archive descriptor ${asset.name}"
+                }
+                descriptors.add(handle)
+                require(handle.statSize < 0L || handle.statSize == asset.bytes)
+                Os.lseek(handle.fileDescriptor, 0L, OsConstants.SEEK_SET)
+                require(archiveDigest(context, source.uri) { false }.equals(asset.sha256, true)) {
+                    "Saved Qwen file hash mismatch: ${asset.name}"
+                }
+                val link = File(directory, asset.name)
+                Os.symlink("/proc/self/fd/${handle.fd}", link.absolutePath)
+                // Some SAF providers expose proc FDs but do not permit reopening them.
+                FileInputStream(link).use { require(it.read() >= 0) }
+            }
+            File(directory, MANIFEST).writeText(metadata)
+            File(directory, CONTRACT).writeText(readVisibleText(context, documents.getValue(CONTRACT).uri))
+            File(directory, READY).writeText(readVisibleText(context, documents.getValue(READY).uri))
+            return RuntimeAssets(directory, "saf-proc-fd", stage, true, descriptors)
+        } catch (t: Throwable) {
+            directory.deleteRecursively()
+            descriptors.forEach { runCatching { it.close() } }
+            throw IllegalStateException("Qwen SAF descriptor bridge unavailable: ${t.message}", t)
+        }
+    }
+
+    /** If direct SAF loading fails, prefer an already-installed working copy. The last
+     * resort is a transient, hash-verified staging directory, deleted when the session
+     * closes. Nothing here triggers a network download.
+     */
+    fun openFallbackRuntime(context: Context): RuntimeAssets {
+        for ((stage, version) in supportedStages.zip(listOf(3, 2, 1))) {
+            val dir = stageFolder(context, stage, version)
+            if (localState(dir, version) == NpuArchiveState.READY) {
+                // A READY marker alone is insufficient for safety.
+                val manifest = JSONObject(File(dir, MANIFEST).readText())
+                require(expected(manifest, version).all { asset ->
+                    ModelFileOps.verify(File(dir, asset.name), asset.bytes, "SHA-256", asset.sha256)
+                }) { "Previously installed Qwen working copy has changed" }
+                return RuntimeAssets(dir, "previous-private-runtime", stage, false, emptyList())
+            }
+        }
+        val (stage, version) = requireNotNull(bestVisibleStage(context)) {
+            "No verified shared Qwen archive and no existing private model; network download is not required"
+        }
+        val loc = requireNotNull(visibleLocation(context, stage, false))
+        val docs = visibleItems(context, loc)
+        val parsed = JSONObject(readVisibleText(context, docs.getValue(MANIFEST).uri))
+        val assets = expected(parsed, version)
+        val directory = transientCache(context)
+        val necessaryBytes = assets.sumOf { it.bytes } + 256L * 1024L * 1024L
+        require(StatFs(context.filesDir.absolutePath).availableBytes >= necessaryBytes) {
+            "Shared Qwen descriptor loading unavailable; transient restore needs $necessaryBytes free bytes. Original archive remains in Whisperapp/Models."
+        }
+        require(!directory.exists() || directory.deleteRecursively())
+        require(directory.mkdirs())
+        try {
+            for (asset in assets) {
+                val target = File(directory, asset.name)
+                ModelFileOps.restoreDocument(context, docs.getValue(asset.name).uri, target) { incoming ->
+                    require(ModelFileOps.verify(incoming, asset.bytes, "SHA-256", asset.sha256)) {
+                        "Qwen transient copy failed SHA-256: ${asset.name}"
+                    }
+                }
+            }
+            File(directory, MANIFEST).writeText(readVisibleText(context, docs.getValue(MANIFEST).uri))
+            File(directory, CONTRACT).writeText(readVisibleText(context, docs.getValue(CONTRACT).uri))
+            File(directory, READY).writeText(readVisibleText(context, docs.getValue(READY).uri))
+            return RuntimeAssets(directory, "saf-transient-verified", stage, true, emptyList())
+        } catch (t: Throwable) {
+            directory.deleteRecursively()
+            throw t
+        }
+    }
+
+    private const val PROOF_PREFS = "qwen-shared-fd-proof"
+    fun noteSuccessfulSharedTranscription(context: Context, stage: String) {
+        val folder = visibleLocation(context, stage, false) ?: return
+        val manifest = visibleItems(context, folder)[MANIFEST] ?: return
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            readVisibleText(context, manifest.uri).toByteArray(Charsets.UTF_8)
+        ).joinToString("") { "%02x".format(it) }
+        context.getSharedPreferences(PROOF_PREFS, Context.MODE_PRIVATE).edit()
+            .putString("proven_$stage", digest).apply()
+    }
+
+    /** Only remove duplicate PRIVATE weights on explicit request, after an actual shared-FD
+     * transcript and full SHA-256 verification of the persistent archive. Never remove SAF.
+     */
+    fun reclaimPrivateDuplicate(context: Context): Long {
+        val (stage, version) = requireNotNull(bestVisibleStage(context)) { "Qwen must be saved in Whisperapp/Models first" }
+        val loc = requireNotNull(visibleLocation(context, stage, false))
+        val docs = visibleItems(context, loc)
+        val content = readVisibleText(context, docs.getValue(MANIFEST).uri)
+        val manifestDigest = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        require(context.getSharedPreferences(PROOF_PREFS, Context.MODE_PRIVATE)
+            .getString("proven_$stage", null) == manifestDigest) {
+            "Run a successful Qwen transcription from the shared archive before removing the backup"
+        }
+        require(expected(JSONObject(content), version).all { asset ->
+            val doc = docs[asset.name] ?: return@all false
+            doc.size == asset.bytes && archiveDigest(context, doc.uri) { false }.equals(asset.sha256, true)
+        }) { "Qwen shared archive hash verification failed; private backup preserved" }
+        val duplicate = File(context.filesDir, "$PERSISTENT_ROOT/$stage")
+        val old = File(context.filesDir, "$PREVIOUS_ROOT/$stage")
+        var reclaimed = 0L
+        for (dir in listOf(duplicate, old)) {
+            if (!dir.isDirectory) continue
+            // Only the known stage inside exact app-owned directories is deletable.
+            val size = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            require(dir.deleteRecursively() && !dir.exists()) { "Could not clear Qwen private duplicate" }
+            reclaimed += size
+        }
+        return reclaimed
+    }
+
+    private fun ensureLocalRuntime(context: Context) {
+        if (listOf(fp16Folder(context) to 3, compactFolder(context) to 2,
+                legacyFolder(context) to 1).any { (dir, version) -> localState(dir, version) == NpuArchiveState.READY }) return
+        for ((stage, version) in supportedStages.zip(listOf(3, 2, 1))) {
+            if (restoreFromVisibleArchive(context, stage, version)) return
         }
     }
 
@@ -204,8 +533,9 @@ internal object Qwen3HybridPackageStore {
         val fp16 = localState(fp16Folder(context), 3)
         val compact = localState(compactFolder(context), 2)
         val legacy = localState(legacyFolder(context), 1)
+        val saved = visibleArchiveReady(context)
         return when {
-            fp16 == NpuArchiveState.READY || compact == NpuArchiveState.READY || legacy == NpuArchiveState.READY -> NpuArchiveState.READY
+            fp16 == NpuArchiveState.READY || compact == NpuArchiveState.READY || legacy == NpuArchiveState.READY || saved -> NpuArchiveState.READY
             fp16 == NpuArchiveState.INCOMPLETE || compact == NpuArchiveState.INCOMPLETE || legacy == NpuArchiveState.INCOMPLETE -> NpuArchiveState.INCOMPLETE
             else -> NpuArchiveState.NOT_INSTALLED
         }
@@ -214,6 +544,7 @@ internal object Qwen3HybridPackageStore {
     /** Verify every installed model hash and all decoder sidecar names before loading ORT. */
     fun verifiedFolder(context: Context): File {
         require(state(context) == NpuArchiveState.READY) { "Qwen model package is not installed" }
+        ensureLocalRuntime(context)
         val dir = folder(context)
         val version = when(dir) {
             fp16Folder(context) -> 3
@@ -233,8 +564,15 @@ internal object Qwen3HybridPackageStore {
     /** New installs require Stage I schema v3 from HF main; no unverified v1/v2 fallback downloads. */
     fun installOrRepair(context: Context, cancelled: () -> Boolean, progress: (Int, Long, Long, String) -> Unit) {
         val dir = fp16Folder(context)
+        // A completed visible archive IS an installed model. Never copy gigabytes back
+        // to private storage merely because the user pressed Download or Upgrade.
+        if (visibleState(context, "stage-i-fp16-0.6b", 3) == NpuArchiveState.READY) {
+            progress(100, 1, 1, "Qwen already saved in Whisperapp/Models; no download or private copy needed")
+            return
+        }
         if (localState(dir, 3) == NpuArchiveState.READY) {
-            progress(100, 1, 1, "Stage I FP16-storage Qwen model already installed")
+            val location = saveInstalledToWhisperappModels(context, cancelled, progress)
+            progress(100, 1, 1, "Qwen already downloaded; saved in $location")
             return
         }
         require(dir.mkdirs() || dir.isDirectory)
@@ -284,7 +622,9 @@ internal object Qwen3HybridPackageStore {
         markerPart.writeText(JSONObject().put("manifest_sha256", sha(manifestFile))
             .put("qualification", "experimental_android_unverified").toString())
         require(markerPart.renameTo(File(dir, READY)))
-        progress(100, total, total, "Experimental FP16-stored Qwen hybrid downloaded and verified")
+        progress(99, total, total, "Archiving Qwen into the selected Whisperapp/Models workspace")
+        val location = saveInstalledToWhisperappModels(context, cancelled, progress)
+        progress(100, total, total, "Qwen verified and saved in $location")
     }
 
     /** Explicit user action after compact is ready; never remove the original during upgrade. */
@@ -307,6 +647,8 @@ internal object Qwen3HybridPackageStore {
 
     fun select(context: Context) {
         require(state(context) == NpuArchiveState.READY) { "Install Qwen hybrid package first" }
+        // Worker uses the shared SAF archive directly whenever its descriptor bridge works.
+        // Selection must NOT materialize a second permanent multi-GB working copy.
         AppPrefs.setTranscriptionEngine(context, "qwen3_hybrid")
         AppPrefs.setModelPath(context, null)
     }
@@ -318,6 +660,11 @@ internal object Qwen3HybridPackageStore {
         // Clean legacy cacheDir wrappers left by v6.5.27 and earlier.
         val scratch = File(context.cacheDir, "qwen3-hybrid-epcontext")
         var clean = (!scratch.exists() || scratch.deleteRecursively()) && !scratch.exists()
+        // v6.5.32: these are exact Qwen-owned scratch directories. Called only
+        // after the worker has closed, or by the explicit inactive-session button.
+        for (temporary in listOf(sharedCache(context), transientCache(context))) {
+            if (temporary.exists() && (!temporary.deleteRecursively() || temporary.exists())) clean = false
+        }
         // v6.5.28's wrapper is adjacent to the context binary so ORT can resolve a
         // basename-only ep_cache_context. Check every supported package version.
         for (stage in supportedStages) {

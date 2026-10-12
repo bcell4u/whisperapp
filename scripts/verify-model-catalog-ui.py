@@ -110,8 +110,8 @@ checks = {
             'onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID)' in x
             for x in (models, setup)),
     'Qwen detection stays off main thread and can be manually rescanned':
-        'withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }' in models
-        and 'withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }' in setup
+        'withContext(Dispatchers.IO) {\n                Qwen3HybridPackageStore.state(context) to Qwen3HybridPackageStore.visibleArchiveReady(context)' in models
+        and 'withContext(Dispatchers.IO) {\n                Qwen3HybridPackageStore.state(context) to Qwen3HybridPackageStore.visibleArchiveReady(context)' in setup
         and 'Recheck installed Qwen model' in models
         and 'qwenStateChecking' in models and 'qwenStateChecking' in setup,
     'model package identity and pinned revision preserved':

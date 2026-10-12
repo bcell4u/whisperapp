@@ -550,6 +550,9 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
     }
     var verbose by remember { mutableStateOf(AppPrefs.isVerboseDiagnostics(context)) }
     var status by remember { mutableStateOf("") }
+    var savedBundleCount by remember { mutableIntStateOf(DiagnosticLogger.bundles(context).size) }
+    var confirmDeleteBundles by remember { mutableStateOf(false) }
+    var exportingBundle by remember { mutableStateOf<File?>(null) }
     val clipboard = LocalClipboardManager.current
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
@@ -562,6 +565,39 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                 status = "Export failed: ${t.message}"
             }
         }
+    }
+
+    val zipExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val bundle = exportingBundle
+        exportingBundle = null
+        if (uri != null && bundle != null) {
+            scope.launch {
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri, "w")?.use { target ->
+                            bundle.inputStream().buffered().use { source -> source.copyTo(target) }
+                        } ?: error("Could not open selected ZIP destination")
+                    }
+                }
+                status = outcome.fold({ "Diagnostic ZIP exported" }, { "ZIP export failed: ${it.message}" })
+            }
+        }
+    }
+    if (confirmDeleteBundles) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteBundles = false },
+            title = { Text("Delete diagnostic ZIP files?") },
+            text = { Text("Delete only the locally stored diagnostic ZIP archives? Recordings, models, regular logs and the selected Whisperapp/Models folder are preserved.") },
+            confirmButton = { TextButton(onClick = {
+                confirmDeleteBundles = false
+                scope.launch {
+                    val count = withContext(Dispatchers.IO) { DiagnosticLogger.deleteBundles(context) }
+                    savedBundleCount = DiagnosticLogger.bundles(context).size
+                    status = "$count diagnostic ZIP(s) deleted"
+                }
+            }) { Text("Delete ZIPs") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteBundles = false }) { Text("Cancel") } }
+        )
     }
 
     Scaffold(
@@ -647,6 +683,34 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                         }) { Text("Clear log", color = MaterialTheme.colorScheme.error) }
                     }
                     if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Automatic diagnostic ZIPs", style = MaterialTheme.typography.titleMedium)
+                    Text("An app-owned ZIP is generated automatically when the diagnostic logger captures an error. Each ZIP contains bounded, redacted recent logs, the NPU worker tail, a failure stack and runtime memory/thermal details; no recordings or model weights are intentionally included. Review before sharing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("$savedBundleCount saved ZIP(s). The newest five are retained automatically.", style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) { runCatching { DiagnosticLogger.createSnapshot(context) } }
+                                result.onSuccess { bundle ->
+                                    savedBundleCount = DiagnosticLogger.bundles(context).size
+                                    exportingBundle = bundle
+                                    zipExporter.launch(bundle.name)
+                                }.onFailure { status = "Snapshot failed: ${it.message}" }
+                            }
+                        }) { Text("Create & export ZIP") }
+                        OutlinedButton(onClick = {
+                            val latest = DiagnosticLogger.bundles(context).firstOrNull()
+                            if (latest == null) status = "No saved ZIP yet. Create a snapshot first."
+                            else { exportingBundle = latest; zipExporter.launch(latest.name) }
+                        }) { Text("Export latest") }
+                    }
+                    TextButton(onClick = { confirmDeleteBundles = true }, enabled = savedBundleCount > 0) {
+                        Text("Delete diagnostic ZIP files", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
 

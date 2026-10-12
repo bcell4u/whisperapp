@@ -25,6 +25,7 @@ import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
 import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
+import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
 import com.example.whisperrecorder.qwen.Qwen3HybridClient
 import com.example.whisperrecorder.transcribe.AsrEngine
 import com.example.whisperrecorder.transcribe.TranscriptionRuntime
@@ -64,10 +65,13 @@ internal fun ModelsScreen(
     var npuArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var omiArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenVisibleSaved by remember { mutableStateOf(false) }
     var qwenStateChecking by remember { mutableStateOf(true) }
     var qwenDeleteConfirm by remember { mutableStateOf(false) }
     var qwenLegacyDeleteConfirm by remember { mutableStateOf(false) }
     var qwenCompactDeleteConfirm by remember { mutableStateOf(false) }
+    var qwenReclaimConfirm by remember { mutableStateOf(false) }
+    var qwenFastDecoder by remember { mutableStateOf(QwenDecoderPerformancePolicy.fast(context)) }
     var npuDeleteConfirm by remember { mutableStateOf(false) }
     var omiDeleteConfirm by remember { mutableStateOf(false) }
     var npuActionRunning by remember { mutableStateOf(false) }
@@ -139,9 +143,12 @@ internal fun ModelsScreen(
     suspend fun refreshQwenState(): NpuArchiveState {
         qwenStateChecking = true
         return try {
-            withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }.also {
-                qwenArchiveState = it
+            val (result, archived) = withContext(Dispatchers.IO) {
+                Qwen3HybridPackageStore.state(context) to Qwen3HybridPackageStore.visibleArchiveReady(context)
             }
+            qwenArchiveState = result
+            qwenVisibleSaved = archived
+            result
         } finally { qwenStateChecking = false }
     }
     LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
@@ -152,7 +159,7 @@ internal fun ModelsScreen(
         AlertDialog(
             onDismissRequest = { qwenDeleteConfirm = false },
             title = { Text("Remove Qwen3 hybrid model?") },
-            text = { Text("Remove only the experimental Qwen model files from private app storage? This does not touch your recordings, Parakeet, or Omi models.") },
+            text = { Text("Remove the Qwen app-private runtime working copy? The user-visible archive in Whisperapp/Models, if saved, will NOT be deleted. Reusing the archive may require an offline restore.") },
             confirmButton = {
                 Button(onClick = {
                     qwenDeleteConfirm = false
@@ -162,7 +169,7 @@ internal fun ModelsScreen(
                             val removed = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.delete(context) }
                             qwenArchiveState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
                             refreshModels(false)
-                            status = if (removed) "Qwen experimental model removed" else "Qwen files could not be fully removed"
+                            status = if (removed) "Qwen runtime working copy removed; saved Whisperapp/Models archive retained" else "Qwen runtime working copy could not be fully removed"
                         } finally { npuActionRunning = false }
                     }
                 }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) { Text("Remove") }
@@ -305,7 +312,7 @@ internal fun ModelsScreen(
                         languageCount = 30
                     ),
                     installed = qwenArchiveState == NpuArchiveState.READY,
-                    persistent = false,
+                    persistent = qwenVisibleSaved,
                     selected = selectedEngine == AsrEngine.QWEN3_HYBRID.id,
                     restoring = npuActionRunning || localRestoringId != null || qwenStateChecking,
                     partialDownload = qwenArchiveState == NpuArchiveState.INCOMPLETE,
@@ -344,13 +351,53 @@ internal fun ModelsScreen(
                     scope.launch {
                         val actual = refreshQwenState()
                         status = when (actual) {
-                            NpuArchiveState.READY -> "Installed Qwen model found. You can select Use without downloading."
+                            NpuArchiveState.READY -> if (qwenVisibleSaved)
+                                "Qwen found in Whisperapp/Models. Use does not require a download."
+                                else "Existing Qwen working copy found. Tap Save existing Qwen to Whisperapp/Models to archive it offline."
                             NpuArchiveState.INCOMPLETE -> "Qwen files found but package verification is incomplete. Use Resume to repair, without deleting existing files."
                             NpuArchiveState.NOT_INSTALLED -> "No installed Qwen package found in the app's recognized folders."
                         }
                     }
                 }, enabled = !qwenStateChecking && !modelDownload.active && !npuActionRunning) {
                     Text("Recheck installed Qwen model")
+                }
+                if (qwenArchiveState == NpuArchiveState.READY && !qwenVisibleSaved) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            npuActionRunning = true
+                            status = "Saving existing Qwen bytes to the selected Whisperapp/Models folder (offline). This may require several GB of available space."
+                            try {
+                                val location = withContext(Dispatchers.IO) {
+                                    Qwen3HybridPackageStore.saveInstalledToWhisperappModels(context)
+                                }
+                                qwenVisibleSaved = withContext(Dispatchers.IO) {
+                                    Qwen3HybridPackageStore.visibleArchiveReady(context)
+                                }
+                                status = "Qwen saved in $location. Existing runtime weights retained; no network download."
+                            } catch (t: Throwable) {
+                                status = "Qwen archive copy failed; existing working model preserved: ${t.message}"
+                            } finally { npuActionRunning = false }
+                        }
+                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Save existing Qwen to Whisperapp/Models (no download)")
+                    }
+                }
+                if (qwenArchiveState == NpuArchiveState.READY) {
+                    OutlinedButton(onClick = {
+                        qwenFastDecoder = !qwenFastDecoder
+                        QwenDecoderPerformancePolicy.setFast(context, qwenFastDecoder)
+                        status = if (qwenFastDecoder)
+                            "Qwen speed experiment: 4 CPU decoder threads on the NEXT transcription. Compare time and phone heat to 2 threads."
+                        else "Qwen balanced decoder: 2 CPU threads on the NEXT transcription."
+                    }, enabled = !transcriptionState.active && !npuActionRunning) {
+                        Text(if (qwenFastDecoder) "Qwen CPU decoder: 4 threads (speed test)" else "Qwen CPU decoder: 2 threads (balanced) — tap to test 4")
+                    }
+                    if (qwenVisibleSaved) {
+                        OutlinedButton(onClick = { qwenReclaimConfirm = true },
+                            enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                            Text("Reclaim duplicate private Qwen weights (after shared-runtime test)")
+                        }
+                    }
                 }
                 OutlinedButton(onClick = {
                     scope.launch {
@@ -497,6 +544,31 @@ internal fun ModelsScreen(
                 )
             }
         }
+    }
+
+    if (qwenReclaimConfirm) {
+        AlertDialog(onDismissRequest = { qwenReclaimConfirm = false },
+            title = { Text("Reclaim duplicate Qwen storage?") },
+            text = { Text("Only after a successful transcription using the Qwen shared-folder file-descriptor loader, this deletes its extra APP-PRIVATE copy. The saved Qwen package in Whisperapp/Models stays intact. If the document provider cannot load shared files on a future run, a temporary verified copy may be required. Never uninstall or clear app data to perform this operation.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenReclaimConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val bytes = withContext(Dispatchers.IO) {
+                                Qwen3HybridPackageStore.reclaimPrivateDuplicate(context)
+                            }
+                            status = "Removed $bytes bytes of duplicate Qwen app-private weights; Whisperapp/Models retained"
+                            refreshQwenState()
+                        } catch (t: Throwable) {
+                            status = "Private Qwen backup preserved: ${t.message}"
+                        } finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                    Text("Reclaim private duplicate")
+                }
+            }, dismissButton = { TextButton(onClick = { qwenReclaimConfirm = false }) { Text("Cancel") } })
     }
 
     if (qwenCompactDeleteConfirm) {

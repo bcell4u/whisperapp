@@ -70,6 +70,7 @@ internal fun SetupScreen(
     var npuState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var omiState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var qwenState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenVisibleSaved by remember { mutableStateOf(false) }
     var qwenStateChecking by remember { mutableStateOf(true) }
     var npuChecking by remember { mutableStateOf(false) }
 
@@ -149,14 +150,17 @@ internal fun SetupScreen(
             omiState = withContext(Dispatchers.IO) { OmiNpuPackageStore.archiveState(context) }
         }
     }
-    // Qwen is stored in app-private files, independent of the SAF working directory
-    // and whichever other model was last downloaded. Always check it on entry.
+    // Qwen has a durable user-visible archive in the same SAF Whisperapp/Models folder
+    // as other models, plus an ONNX/QNN-compatible private working copy. Always check both.
     suspend fun refreshQwenState(): NpuArchiveState {
         qwenStateChecking = true
         return try {
-            withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }.also {
-                qwenState = it
+            val (actual, saved) = withContext(Dispatchers.IO) {
+                Qwen3HybridPackageStore.state(context) to Qwen3HybridPackageStore.visibleArchiveReady(context)
             }
+            qwenState = actual
+            qwenVisibleSaved = saved
+            actual
         } finally { qwenStateChecking = false }
     }
     LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
@@ -253,7 +257,7 @@ internal fun SetupScreen(
                 ModelCatalogCard(
                     details = ModelCardDetails(Qwen3HybridPackageStore.DOWNLOAD_ID, Qwen3HybridPackageStore.DISPLAY_NAME,
                         "Apache 2.0 · Experimental hybrid, not clinically validated", Qwen3HybridPackageStore.packageDescription(context), 30),
-                    installed = qwenState == NpuArchiveState.READY, persistent = false,
+                    installed = qwenState == NpuArchiveState.READY, persistent = qwenVisibleSaved,
                     selected = selectedEngine == "qwen3_hybrid", restoring = npuChecking || localRestoringId != null || qwenStateChecking,
                     partialDownload = qwenState == NpuArchiveState.INCOMPLETE, modelDownload = modelDownload,
                     onDownload = {

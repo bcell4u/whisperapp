@@ -5,6 +5,12 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+import org.json.JSONObject
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.data.SafStorage
 import com.example.whisperrecorder.data.WorkspaceStorage
@@ -44,6 +50,9 @@ object DiagnosticLogger {
             file.appendText(trace + "\n", Charsets.UTF_8)
         }
         mirrorErrorToWorkspace(context, label, throwable, trace)
+        // An error automatically creates a bounded local ZIP without attaching recordings or weights.
+        runCatching { createSnapshot(context, "automatic-error", label, throwable) }
+            .onFailure { Log.w("WhisperRecorderDiag", "Automatic diagnostic ZIP failed", it) }
     }
 
     private fun mirrorErrorToWorkspace(context: Context, label: String, throwable: Throwable, trace: String) {
@@ -111,6 +120,107 @@ object DiagnosticLogger {
             val file = logFile(context)
             if (file.exists()) file.writeText("", Charsets.UTF_8)
         }
+    }
+
+    private const val BUNDLE_LIMIT = 5
+    private const val BUNDLE_LOG_BYTES = 384 * 1024
+    private const val BUNDLE_WORKER_BYTES = 128 * 1024
+
+    private fun bundleFolder(context: Context) =
+        File(File(context.filesDir, DIR), "bundles").apply { mkdirs() }
+
+    /** Only app-owned diagnostic ZIPs; excludes recordings, models, and workspace exports. */
+    fun bundles(context: Context): List<File> = synchronized(lock) {
+        bundleFolder(context).listFiles()?.filter {
+            it.isFile && it.name.matches(Regex("^WhisperRecorder-diagnostics-[0-9-]+\\.zip$"))
+        }?.sortedByDescending { it.name } ?: emptyList()
+    }
+
+    /** Clear only these ZIPs; doesn't touch worker logs, models, user recordings or the raw logger. */
+    fun deleteBundles(context: Context): Int = synchronized(lock) {
+        val existing = bundles(context)
+        var deleted = 0
+        for (file in existing) if (file.delete()) deleted++
+        deleted
+    }
+
+    private fun boundedLog(file: File, bytes: Int): String {
+        if (!file.isFile || file.length() == 0L) return "(not available)"
+        val buffer = ByteArray(minOf(file.length(), bytes.toLong()).toInt())
+        RandomAccessFile(file, "r").use {
+            it.seek((it.length() - buffer.size).coerceAtLeast(0))
+            it.readFully(buffer)
+        }
+        val text = buffer.toString(Charsets.UTF_8)
+        return if (file.length() > buffer.size) text.substringAfter('\n', "") else text
+    }
+
+    /** Defense in depth: scrub common credentials, filesystem identity and transcript-bearing lines. */
+    internal fun sanitizeSupportText(input: String): String = input
+        .replace(Regex("hf_[A-Za-z0-9]{12,}"), "[REDACTED_TOKEN]")
+        .replace(Regex("(?i)Bearer\\s+[^\\s]+"), "Bearer [REDACTED]")
+        .replace(Regex("(?i)(token|password|secret|authorization|api[_-]?key)\\s*[:=]\\s*[^\\s,;]+"), "$1=[REDACTED]")
+        .replace(Regex("(?i)content://[^\\s]+"), "[CONTENT_URI]")
+        .replace(Regex("(?i)/storage/emulated/[0-9]+/[^\\s]+"), "[USER_STORAGE_PATH]")
+        .lineSequence()
+        .filterNot { it.contains(Regex("(?i)(transcript\\s*[:=]|recognized_text|transcription_text|raw_audio|waveform_data)")) }
+        .joinToString("\n")
+
+    private fun addZipText(zip: ZipOutputStream, name: String, body: String) {
+        zip.putNextEntry(ZipEntry(name))
+        zip.write(sanitizeSupportText(body).toByteArray(Charsets.UTF_8))
+        zip.closeEntry()
+    }
+
+    /** Auto-called by appendError; manually callable for performance/storage snapshots. */
+    fun createSnapshot(
+        context: Context,
+        reason: String = "manual-snapshot",
+        failureLabel: String = "",
+        failure: Throwable? = null
+    ): File = synchronized(lock) {
+        val folder = bundleFolder(context)
+        val file = File(folder, "WhisperRecorder-diagnostics-${System.currentTimeMillis()}-${android.os.Process.myPid()}-${System.nanoTime()}.zip")
+        val pending = File(folder, file.name + ".partial")
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val memory = android.app.ActivityManager.MemoryInfo()
+        runCatching { am?.getMemoryInfo(memory) }
+        val thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { context.getSystemService(PowerManager::class.java)?.currentThermalStatus }.getOrNull()
+        } else null
+        val version = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "unknown"
+        val summary = JSONObject()
+            .put("format", "whisperrecorder-diagnostic-v1")
+            .put("createdUtcMs", System.currentTimeMillis())
+            .put("reason", reason)
+            .put("failureStage", failureLabel)
+            .put("exceptionType", failure?.javaClass?.simpleName ?: "")
+            .put("appVersion", version)
+            .put("androidApi", Build.VERSION.SDK_INT)
+            .put("hardwareModel", Build.MODEL)
+            .put("deviceSoc", if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else "unknown")
+            .put("processPssKb", Debug.getPss())
+            .put("availableMemoryBytes", memory.availMem)
+            .put("lowMemory", memory.lowMemory)
+            .put("thermalStatus", thermal ?: -1)
+            .put("containsAudioOrModelWeights", false)
+        try {
+            ZipOutputStream(FileOutputStream(pending).buffered()).use { zip ->
+                addZipText(zip, "failure-and-device.json", summary.toString(2))
+                addZipText(zip, "transcription-tail.log", boundedLog(logFile(context), BUNDLE_LOG_BYTES))
+                addZipText(zip, "npu-worker-tail.log", boundedLog(File(context.filesDir, "npu-diagnostics/runtime-worker.log"), BUNDLE_WORKER_BYTES))
+                addZipText(zip, "failure-stack.txt", failure?.let { Log.getStackTraceString(it).takeLast(16_384) } ?: "No exception; manual snapshot")
+                addZipText(zip, "README.txt", "Diagnostic snapshot. Review before sharing. No audio, transcripts, source models, SAF archive, tokens or recordings intentionally included. Logs are bounded and best-effort redacted. Original files were not modified.")
+            }
+            if (!pending.renameTo(file)) error("Unable to finalize diagnostic ZIP")
+        } catch (error: Throwable) {
+            pending.delete()
+            throw error
+        }
+        bundles(context).drop(BUNDLE_LIMIT).forEach { it.delete() }
+        file
     }
 
     fun sizeBytes(context: Context): Long = synchronized(lock) { logFile(context).length() }
