@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Compact monochrome Whisper Recorder glyph for status bar use. Kept inside the safe area so Samsung does not render it oversized. -->
+    <group android:pivotX="12" android:pivotY="12" android:scaleX="0.78" android:scaleY="0.78">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2.5c-2.5,0 -4,1.8 -4,4.2v4.6c0,2.5 1.6,4.2 4,4.2s4,-1.7 4,-4.2V6.7c0,-2.4 -1.5,-4.2 -4,-4.2z"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M9.7,8.2l1.1,3.7 1.2,-2.4 1.2,2.4 1.1,-3.7"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.7"
+        android:strokeLineCap="round" android:pathData="M5.7,11.2c0,3.8 2.5,6.2 6.3,6.2s6.3,-2.4 6.3,-6.2M12,17.4V21M9,21h6"/>
+    </group>
+</vector>
