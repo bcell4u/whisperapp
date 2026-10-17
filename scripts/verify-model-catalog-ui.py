@@ -14,6 +14,12 @@ transcript = (base / 'ui/TranscriptLazyContent.kt').read_text()
 version = dict(line.split('=', 1) for line in (root / 'version.properties').read_text().splitlines() if '=' in line)
 
 checks = {
+    'APK audit checks engine identifiers instead of removed UI text':
+        all(f"require_dex_string '{engine}'" in (root / '.github/workflows/build.yml').read_text()
+            for engine in ('parakeet_npu', 'omi_npu', 'qwen3_hybrid'))
+        and "require_dex_string 'Use NPU'" not in (root / '.github/workflows/build.yml').read_text()
+        and all(f'"{engine}"' in (base / 'transcribe/AsrEngine.kt').read_text()
+            for engine in ('parakeet_npu', 'omi_npu', 'qwen3_hybrid')),
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
     'NPU cards share GPU card layout': models.count('ModelCatalogCard(') >= 3

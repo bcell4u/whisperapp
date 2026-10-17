@@ -1,0 +1,11 @@
+WhisperRecorder v6.5.37 hotfix - update from v6.5.36
+
+Extract this ZIP into the ROOT of your existing GitHub repository.
+The .github/workflows/build.yml file MUST be included (hidden .github directory).
+Preserve current model files, app data, signing configuration and all native dependencies.
+No paths must be deleted for this hotfix.
+
+Root version should read 6.5.37 / versionCode 65037.
+The only functional change is to GitHub Actions APK post-build audit.
+It now checks parakeet_npu, omi_npu and qwen3_hybrid instead of obsolete Use NPU.
+Please build the .dev APK, install without clearing storage, and share diagnostics after the S26 tests.

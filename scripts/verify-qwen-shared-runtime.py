@@ -8,7 +8,7 @@ menu = (p/'app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.
 policy = (p/'app/src/main/java/com/example/whisperrecorder/npu/QwenDecoderPerformancePolicy.kt').read_text()
 version = (p/'version.properties').read_text()
 checks = {
-    'version tracks current release': 'versionName=6.5.36' in version and 'versionCode=65036' in version,
+    'version tracks current release': (lambda v: v.get('releaseVersion') == v.get('versionName') and v.get('versionCode', '').isdigit() and int(v['versionCode']) >= 65037)(dict(line.split('=', 1) for line in version.splitlines() if '=' in line)),
     'shared model master stays in user selected workspace': 'WorkspaceStorage.modelsDirectory(context, tree)' in store and 'VISIBLE_PATH = "Whisperapp/Models/qwen3-asr-0.6b"' in store,
     'direct SAF FD loading with seekability probe': 'openSharedRuntime(context: Context)' in store and 'Os.lseek(handle.fileDescriptor' in store and 'Os.symlink("/proc/self/fd/${handle.fd}"' in store,
     'hold FDs while ORT runs': 'private val handles: List<ParcelFileDescriptor>' in store and 'runtimeAssets.close()' in runner and 'closeModels()' in runner,

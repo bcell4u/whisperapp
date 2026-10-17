@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.36
-versionName=6.5.36
-versionCode=65036
+releaseVersion=6.5.37
+versionName=6.5.37
+versionCode=65037
 ```
 
-This source targets v6.5.36. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.37. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -111,3 +111,8 @@ This is not a working experimental 0.6B Qwen hybrid migration or a validated And
 `versionCode=65034`.
 
 This v6.5.34 patch also replaces an obsolete Qwen hybrid unit-test file that can be left behind by incremental uploads to a v6.5.32 GitHub repository. GitHub unit tests for this clean baseline now cover the existing Qwen3 CPU policy instead of a hybrid engine that is not included yet.
+
+
+## v6.5.37 (GitHub APK audit hotfix)
+
+The v6.5.36 GitHub Actions run compiled Kotlin and native code, passed JVM unit tests, and assembled and signed the debug APK. It failed only in the post-build APK audit, which still required the obsolete UI text `Use NPU`. Restore the existing regression-proven check for `parakeet_npu`, `omi_npu`, and `qwen3_hybrid` engine identifiers and add a source guard against reintroducing that marker. Inference, model loading, diagnostics, signing and application IDs are unchanged. `versionCode=65037`. Hardware validation remains pending.
