@@ -15,12 +15,12 @@ import com.example.whisperrecorder.data.SafStorage
 import com.example.whisperrecorder.data.WorkspaceStorage
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
+import com.example.whisperrecorder.diagnostics.DiagnosticReports
 import com.example.whisperrecorder.advanced.LocalAsrModelManager
 import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
-import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import kotlinx.coroutines.*
 import java.io.File
 import java.util.ArrayDeque
@@ -264,11 +264,12 @@ class TranscriptionService : Service() {
         }
         currentRecordingId = request.id
         val sessionStarted = System.currentTimeMillis()
+        val diagnosticRun = DiagnosticReports.begin(this, request.engine.id, request.durationMs)
+        diagnosticRun.event("transcription_start")
         val modelName = when (request.engine) {
             AsrEngine.WHISPER -> File(request.modelPath).name.removePrefix("ggml-").removeSuffix(".bin")
             AsrEngine.PARAKEET_NPU -> "NVIDIA Parakeet TDT 0.6B v3 · Qualcomm NPU"
             AsrEngine.OMI_NPU -> "Omi Med STT v1 · Qualcomm NPU"
-            AsrEngine.QWEN3_HYBRID -> Qwen3HybridPackageStore.DISPLAY_NAME
             else -> LocalAsrModelManager.byEngine(request.engine)?.name ?: File(request.modelPath).name.removeSuffix(".gguf")
         }
         TranscriptionRuntime.update(
@@ -299,9 +300,6 @@ class TranscriptionService : Service() {
                     require(request.modelPath == NpuPackageStore.TRANSCRIPTION_MODEL_KEY) { "Selected NPU package identity is invalid" }
                     require(NpuPackageStore.archiveState(this@TranscriptionService) == NpuArchiveState.READY) { "Parakeet NPU package is not ready" }
                     NpuPackageStore.runtimeArchiveInfo(this@TranscriptionService)
-                } else if (request.engine == AsrEngine.QWEN3_HYBRID) {
-                    require(request.modelPath == Qwen3HybridPackageStore.MODEL_KEY) { "Selected Qwen model key is invalid" }
-                    require(Qwen3HybridPackageStore.state(this@TranscriptionService) == NpuArchiveState.READY) { "Qwen hybrid package is incomplete" }
                 } else if (request.engine == AsrEngine.OMI_NPU) {
                     require(request.modelPath == OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY) { "Selected Omi NPU package identity is invalid" }
                     require(OmiNpuPackageStore.archiveState(this@TranscriptionService) == NpuArchiveState.READY) { "Omi NPU assets are incomplete" }
@@ -349,7 +347,7 @@ class TranscriptionService : Service() {
                     "media stream ready sampleRate=${streamInfo.sampleRate} channels=${streamInfo.channelCount} trackMime=${streamInfo.trackMime} audioStartMs=${streamInfo.audioStartMs} audioDurationMs=$audioDurationMs noFullPcmStaging=true"
                 )
                 updateStage(request.id, "Loading model", "Loading $modelName", modelName, total, totalChunks = totalChunks)
-                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id} path=${if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.QWEN3_HYBRID) Qwen3HybridPackageStore.MODEL_KEY else request.modelPath} sizeBytes=${if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU || request.engine == AsrEngine.QWEN3_HYBRID) 0L else File(request.modelPath).length()}")
+                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id} path=${if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else request.modelPath} sizeBytes=${if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU) 0L else File(request.modelPath).length()}")
                 val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
                 val configuredThreads = AppPrefs.effectiveTranscriptionThreads(this@TranscriptionService, cores)
                 val threads = if (request.engine.supportsConfigurableThreads) configuredThreads else 0
@@ -359,7 +357,7 @@ class TranscriptionService : Service() {
                     whisperEnglishOnly = request.engine == AsrEngine.WHISPER && ModelManager.isEnglishOnly(File(request.modelPath))
                 )
                 val modelLoadStarted = System.currentTimeMillis()
-                val sessionKey = SessionKey(request.engine, if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.QWEN3_HYBRID) Qwen3HybridPackageStore.MODEL_KEY else File(request.modelPath).canonicalPath, threads)
+                val sessionKey = SessionKey(request.engine, if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else File(request.modelPath).canonicalPath, threads)
                 val reusedSession = warmSession != null && warmSessionKey == sessionKey
                 val session = if (reusedSession) {
                     requireNotNull(warmSession)
@@ -384,6 +382,7 @@ class TranscriptionService : Service() {
                 ensureActive()
                 activeSession = session
                 modelLoadElapsedMs = System.currentTimeMillis() - modelLoadStarted
+                diagnosticRun.event(if (reusedSession) "model_session_reused" else "model_session_loaded", modelLoadElapsedMs)
                 DiagnosticLogger.append(
                     this@TranscriptionService,
                     "model acquire complete engine=${request.engine.id} elapsedMs=$modelLoadElapsedMs reused=$reusedSession"
@@ -413,7 +412,7 @@ class TranscriptionService : Service() {
                             val timedChunk = requireNotNull(currentChunk)
                             decodedEndMs = maxOf(decodedEndMs, timedChunk.endMs)
                             val samples = timedChunk.samples
-                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI || request.engine == AsrEngine.QWEN3_HYBRID) async(Dispatchers.IO) {
+                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI) async(Dispatchers.IO) {
                                 val decodeStarted = System.currentTimeMillis()
                                 val next = if (stream.hasNext()) stream.next() else null
                                 val decodeWorkMs = System.currentTimeMillis() - decodeStarted
@@ -489,8 +488,7 @@ class TranscriptionService : Service() {
                                     if (seconds % 5L == 0L) {
                                         getSystemService(NotificationManager::class.java).notify(
                                             NOTIFICATION_ID,
-                                            workingNotification("Transcribing • ${seconds}s elapsed$slowNote",
-                                                if (totalChunks > 1) current.progress else null)
+                                            workingNotification("Transcribing • ${seconds}s elapsed$slowNote", null)
                                         )
                                     }
                                 }
@@ -569,6 +567,7 @@ class TranscriptionService : Service() {
                         }
                         val chunkInferenceMs = System.currentTimeMillis() - inferenceStarted
                         inferenceTotalMs += chunkInferenceMs
+                        diagnosticRun.event("chunk_inference", chunkInferenceMs, chunk)
                         val totalChars = slices.sumOf { it.recognition.text.length }
                         val retryNote = if (slices.size > 1) " adaptiveSlices=${slices.size}" else ""
                         val diagnostics = slices.joinToString(separator = "") { it.recognition.diagnostics }.trim()
@@ -754,8 +753,18 @@ class TranscriptionService : Service() {
                 }
                 val realtimeFactor = if (total > 0L) wallTimeMs.toDouble() / total.toDouble() else 0.0
                 DiagnosticLogger.append(this@TranscriptionService, "SESSION complete recording=${request.id} audioDurationMs=$total wallTimeMs=$wallTimeMs decodeMs=$decodeElapsedMs modelLoadMs=$modelLoadElapsedMs inferenceMs=$inferenceTotalMs saveMs=$saveElapsedMs realtimeFactor=${"%.3f".format(java.util.Locale.US, realtimeFactor)} chunks=$totalChunks chars=${text.length} untranscribedNpuChunks=$unrecoveredNpuChunks")
+                diagnosticRun.event("transcription_complete")
+                diagnosticRun.finish("success", totals = mapOf(
+                    "audio_duration_ms" to total, "wall_ms" to wallTimeMs,
+                    "decode_ms" to decodeElapsedMs, "model_load_ms" to modelLoadElapsedMs,
+                    "inference_ms" to inferenceTotalMs, "save_ms" to saveElapsedMs,
+                    "segments" to totalChunks.toLong(),
+                    "untranscribed_npu_segments" to unrecoveredNpuChunks.toLong()
+                ))
             } catch (ce: CancellationException) {
                 closeWarmSession()
+                diagnosticRun.event("transcription_cancelled")
+                diagnosticRun.finish("cancelled", "user_or_service_cancellation", ce)
                 DiagnosticLogger.append(this@TranscriptionService, "SESSION cancelled recording=${request.id} message=${ce.message}")
                 TranscriptionRuntime.update(
                     TranscriptionRuntime.state.value.copy(active = false, stage = "Cancelled", detail = "Transcription cancelled", error = null)
@@ -764,6 +773,11 @@ class TranscriptionService : Service() {
             } catch (t: Throwable) {
                 closeWarmSession()
                 DiagnosticLogger.appendError(this@TranscriptionService, "SESSION failed recording=${request.id}", t)
+                diagnosticRun.event("transcription_failed")
+                diagnosticRun.finish("failure", TranscriptionRuntime.state.value.stage, t, mapOf(
+                    "decode_ms" to decodeElapsedMs, "inference_ms" to inferenceTotalMs,
+                    "model_load_ms" to modelLoadElapsedMs
+                ))
                 // Write to a unique separate file; never replace an existing transcript or
                 // attach an incomplete result as the recording's official transcription.
                 val partialSaved = if (partialTranscript.isNotBlank()) runCatching {

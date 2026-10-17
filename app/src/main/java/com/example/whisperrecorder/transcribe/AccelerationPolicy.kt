@@ -5,7 +5,7 @@ enum class AccelerationTier { NPU, GPU, CPU }
 
 object AccelerationPolicy {
     fun tier(engine: AsrEngine): AccelerationTier = when (engine) {
-        AsrEngine.PARAKEET_NPU, AsrEngine.OMI_NPU, AsrEngine.QWEN3_HYBRID -> AccelerationTier.NPU
+        AsrEngine.PARAKEET_NPU, AsrEngine.OMI_NPU -> AccelerationTier.NPU
         AsrEngine.PARAKEET, AsrEngine.OMI -> AccelerationTier.GPU
         AsrEngine.QWEN3, AsrEngine.WHISPER -> AccelerationTier.CPU
     }

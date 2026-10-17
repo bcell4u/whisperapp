@@ -16,8 +16,7 @@ for item in 'AsrEngine.OMI_NPU -> OmiNpuSession(context)' 'override fun transcri
 done
 grep -Fq 'OmiNpuPackageStore.selectForTranscription(context)' "$BASE/ui/models/ModelsScreen.kt"
 grep -Fq 'OMI_NPU_MAX_SECONDS = 12' "$BASE/transcribe/SegmentationPolicy.kt"
-# Omi and Qwen share one-second fixed-window overlap; still assert both roles.
-grep -Fq 'AsrEngine.OMI_NPU, AsrEngine.QWEN3_HYBRID -> 1' "$BASE/transcribe/SegmentationPolicy.kt"
+grep -Fq 'AsrEngine.OMI_NPU -> 1' "$BASE/transcribe/SegmentationPolicy.kt"
 grep -Fq 'model_qualification' "$BASE/npu/NpuRuntimeWorkerService.kt"
 test -f "$ROOT/app/src/test/java/com/example/whisperrecorder/npu/OmiTdtControllerTest.kt"
 test -f "$ROOT/app/src/test/java/com/example/whisperrecorder/npu/OmiPreprocessorTest.kt"

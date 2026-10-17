@@ -1,25 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.33**, Android `versionCode=65033`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
-
-## v6.5.28 Qwen EPContext relative-path fix
-
-The Qwen worker now creates the ONNX EPContext wrapper beside the verified encoder binary, using a relative `ep_cache_context` filename as required by ORT-QNN. The phone-clearing button and post-session cleanup remove only generated wrapper files. Real S26 testing is pending. See [RELEASE-v6.5.28.md](RELEASE-v6.5.28.md).
-
-## v6.5.27 APK audit backend-ID fix
-
-GitHub Actions now verifies `parakeet_npu`, `omi_npu`, and `qwen3_hybrid` backend identifiers in the built APK rather than the obsolete `Use NPU` label. The app successfully compiled in the v6.5.26 CI run; the old DEX label check caused its final audit to fail. No inference code, model packages, app identity, or signing settings changed.
-
-## v6.5.26 experimental Qwen Stage I FP16 storage
-
-See [RELEASE-v6.5.26.md](RELEASE-v6.5.26.md). New Qwen downloads require schema v3 from the verified Hugging Face main repository. Existing v1/v2 installs remain readable.
-
-## v6.5.25 GitHub Actions source-audit fix
-
-Retains the experimental Qwen3-ASR-0.6B S26 hybrid backend from the preceding
-source snapshot. Updates the model-catalog verifier to accept three independent
-NPU model cards and allow the Qwen-specific experimental warning without changing
-Parakeet or Omi labels. Android CI compilation and phone testing are still pending.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.33**, Android `versionCode=65022`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -31,7 +12,6 @@ The app maintains these independent offline recognition backends:
 | Parakeet TDT 0.6B v3 Q8_0 | parakeet.cpp / Adreno OpenCL | GPU |
 | Omi Med STT v1 Q8_0 | shared parakeet.cpp / OpenCL runtime | GPU |
 | Omi Med STT v1 FP16 QNN (Experimental) | ONNX Runtime 1.27 / Qualcomm QNN 2.50 | Snapdragon NPU |
-| Qwen3-ASR 0.6B hybrid (Experimental, Android unverified) | Qualcomm QNN FP16 encoder / ONNX Runtime FP32 decoder | Snapdragon NPU + CPU |
 | Qwen3-ASR 1.7B | transcribe.cpp | CPU |
 | Whisper | whisper.cpp | CPU |
 
@@ -120,11 +100,23 @@ concurrent model operations, scopes NPU staging cleanup to the selected model, a
 optimizes long-transcript cue partitioning. See `VERSIONING.md` for the change history.
 The existing signed release workflow remains authoritative for Android compilation.
 
-Qwen 0.6B model files are persisted under app-private `whisperapp/models/qwen3-asr-0.6b` and reused across in-place upgrades; older Qwen folders are migrated by atomic rename where available. App uninstall or clearing storage still deletes them.
 
-### v6.5.32 Qwen storage/speed trial
-Qwen now attempts Parakeet-style SAF descriptor loading from the user-selected Whisperapp/Models directory. A failed bridge falls back safely to the already-installed private copy or an automatically cleaned transient copy, without a new download. After a successful shared-folder transcription, Settings can reclaim the redundant private copy on explicit confirmation. A 2-vs-4 CPU decoder thread control allows a measured speed/heat comparison; 2 threads remains the default. See RELEASE-v6.5.32.md.
+## v6.5.33 — diagnostics-first hybrid redevelopment
 
-### v6.5.33 diagnostics maintenance
+This source release is based on the known-good v6.5.22 app. It adds bounded, local,
+automatically produced diagnostic ZIP archives after transcription success/failure/cancellation,
+with structured per-chunk execution durations, app/device/thermal/memory metadata, and
+exception stack symbols. Settings > Diagnostics can create, share, individually delete or
+clear these ZIPs. Source files, model weights, audio, transcripts, token values, and user
+paths are excluded. Only the app-owned private diagnostics/reports folder is pruned.
 
-The existing Diagnostics logger now creates bounded, best-effort redacted ZIPs on caught Qwen/NPU/app errors. Settings > Diagnostics can create/export a snapshot, export the newest ZIP, or manually delete saved diagnostic archives without deleting original logs, models or recordings. See RELEASE-v6.5.33.md.
+This phase **does not yet include** the experimental Qwen3-ASR-0.6B hybrid loader, FP16
+embedding lookup, new model conversion, NPU context recompilation, or a demonstrated
+transcription speedup. The existing Qwen CPU, Parakeet and Omi backends are preserved. The
+previously verified non-regressing progress policy from v6.5.29 is carried forward.
+Full Android CI compilation and Galaxy S26 regression tests are still required.
+
+**Upgrade warning:** Do not install this v6.5.33 clean-baseline release build over an
+existing v6.5.32 Qwen-hybrid installation yet. The experimental 0.6B backend is
+intentionally absent in this phase. Use the `.dev` debug variant for isolated tests,
+or wait until the hybrid is reinstated and validated.

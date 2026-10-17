@@ -1,11 +1,39 @@
-# WhisperRecorder Android v6.5.33 — Diagnostic Bundles, Minimal Runtime Changes
+# WhisperRecorder v6.5.33 — Diagnostics foundation
 
-**Source release; not a compiled or physical-device validated APK.** Bumps `releaseVersion`, `versionName`, `versionCode` to `6.5.33`, `6.5.33`, `65033`. Application ID, signing and NPU/GPU/CPU backend selection unchanged.
+Development base: v6.5.22 stable source; experimental Qwen v6.5.32 used as reference only.
 
-- Reuses central `DiagnosticLogger` for automatic bounded `.zip` bundles after caught app exceptions, including Qwen `:qwen` worker and existing QNN `:npu` worker error responses. Expected user cancellations do not create error bundles. Uncaught native crashes/OOM may still need separate Android tombstones/logcat; this is not a crash-reporting guarantee.
-- Each snapshot contains `failure-and-device.json`, up to 384 KiB of app log, 128 KiB of NPU worker log, a bounded exception stack, and a README. Device API/model, process PSS, available RAM and thermal status are recorded. ZIP snapshots are local until a user explicitly exports them.
-- `Settings > Diagnostics`: Create & export snapshot ZIP, export latest ZIP, explicitly confirm Delete diagnostic ZIP files. Retain newest five bundles. Does not clear regular logs or user-selected `Whisperapp/Models`, model cache, recordings, original ONNX or QNN files.
-- Text filtering best-effort redacts common token formats, storage and content URIs, and transcript-labelled lines. **Inspect the ZIP before sending**; no redactor guarantees removal of all sensitive text. Do not attach clinical/private recordings.
-- Qwen SAF bridge and 2/4-thread experiment remain **unverified on physical S26**. This is diagnostic instrumentation, NOT a Qwen NPU decoder or proof of faster decoding.
+## Included
 
-Validation: run existing source verification, then GitHub Actions Gradle build, upgrade APK without uninstall, trigger a controlled error and inspect/export/delete a diagnostic ZIP; rerun Parakeet/Omi/Qwen smoke tests. Do not reclaim any private model duplicate until successful shared-folder phone transcription and full hash audit.
+- Automatically creates a bounded private ZIP report when transcription ends, fails or is cancelled.
+- Captures structured per-segment inference durations and completion totals; exception classes and sanitized stack frame symbols.
+- Captures device, thermal and process PSS snapshot at report generation time.
+- Settings > Diagnostics supports ZIP creation, Android sharing, individual deletion and delete-all confirmation.
+- Max 8 diagnostic ZIPs and 32 MiB combined. Report files are never written to model or recording folders.
+- On app restart, stale unfinished markers (older than five minutes) can yield an interruption report.
+- Carry forward the previously tested v6.5.29 non-regressing progress policy for overlapping audio segments.
+- Existing diagnostic text log retained, but is **not** included in auto-share ZIP because it can contain recording names, paths or other private data.
+
+## Deliberately not included yet
+
+- Qwen3-ASR 0.6B hybrid backend migration, FP16 embedding candidate, decoder optimizations or quantization.
+- New Qualcomm SDK, cloud compile, model downloads, or device staging.
+- Verified Android Gradle APK or physical-phone performance numbers.
+
+## Validation required
+
+1. CI source gate and complete Android Gradle compile with pinned native dependencies.
+   **Do not install the v6.5.33 release build over v6.5.32 on a production phone:**
+   this is the clean baseline and intentionally does not yet include the experimental
+   Qwen3-ASR-0.6B hybrid backend. For isolated smoke tests, install the debug
+   `.dev` application ID alongside the existing release; app-private storage will
+   be separate. Preserve the production model archives and app data.
+2. Upgrade over installed app (do not uninstall or clear storage), check all existing model cards.
+3. Transcribe with one short synthetic clip and verify ZIP (including no sensitive text).
+4. Cancel and force a controlled failure; verify ZIPs, sharing, deletion and non-destructive retention.
+5. Verify Parakeet/Omi performance and progress behavior on the S26.
+
+## Next release
+
+After the diagnostic and clean-app baseline pass, integrate the already verified Qwen
+FP16 QNN encoder and a decoder controlled by measured S26 profiling, without reusing
+experimental file-migration code blindly.

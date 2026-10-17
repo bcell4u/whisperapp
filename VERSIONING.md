@@ -91,29 +91,14 @@ long-transcript cue partitioning without changing saved text or cue timestamps.
 Refreshes stale release documentation and adds regression guards. No model contexts,
 transcription inference, speaker diarization, signing identity or storage format changed.
 Android Gradle compilation and on-device regression testing remain pending.
-`versionCode=65022`.
+`versionCode=65033`.
 
-## v6.5.24 (Qwen model catalog source verifier fix; Android CI pending)
 
-Retains the Qwen3-ASR experimental S26 hybrid integration source from the previous
-archive and updates source verifier assumptions to recognize three Qualcomm NPU
-model cards. Maintains the explicit Qwen-only experimental label and prevents
-that label from leaking into the existing Parakeet or Omi cards. The version
-metadata advances to `versionCode=65023` with no package ID or signing changes.
-No Android APK or S26 inference result is claimed for this release.
+## v6.5.33 (diagnostics foundation source candidate)
 
-- v6.5.28: Qwen EPContext relative path + app-private `whisperapp/models` persistence/migration; app version code 65028.
-
-### v6.5.30
-
-Recheck app-private Qwen model availability whenever Models & downloads or first-launch setup opens, regardless of which model was last downloaded. Fix stale Download button for already installed Qwen model. Recheck the package before starting any Qwen download; provide a manual installed-model recheck, preserve v1-v3 model storage, hashes, and all other backends. `versionCode=65030`.
-
-### v6.5.31
-
-Qwen Stage I model files now archive to the SAME user-selected `Whisperapp/Models/qwen3-asr-0.6b/` SAF folder as Parakeet/Omi. Existing app-private Qwen installs can be saved offline via a one-time Settings button; newly downloaded Qwen models are archived automatically after validation. User-visible copies are verified and preserved if the app-private working copy is deleted. ONNX external-data and ORT-QNN EPContext require a separate app-private execution copy because SAF document URIs are not ordinary filesystem paths; users must have space for both during migration. Existing audio recordings and other backends are unchanged. `versionCode=65032`.
-
-### v6.5.32
-Android release v6.5.32 (65032): Qwen SAF file-descriptor storage bridge and measured decoder thread profiles.
-
-### v6.5.33
-Android release v6.5.33 (65033): bounded automatic diagnostic ZIP snapshots and manual export/deletion controls; all preexisting model engines and experimental Qwen storage/thread behavior retained.
+Based on v6.5.22, adds app-private structured diagnostic ZIPs, bounded per-chunk timing,
+engine/device/thermal/memory metadata, failure stack symbols and controlled retention.
+A new Settings > Diagnostics section supports create, share, delete one, and delete all.
+No model inference backend, recording, model file, signing identity or SAF storage change.
+This is not a working experimental 0.6B Qwen hybrid migration or a validated Android APK.
+`versionCode=65033`.
