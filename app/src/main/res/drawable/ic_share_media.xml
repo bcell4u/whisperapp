@@ -1,9 +1,0 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <!-- Audio note and outward share arrow; also used for video audio. -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF000000" android:strokeWidth="1.8"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M6,16V5L13,3V14M6,16C6,17.1 5.1,18 4,18C2.9,18 2,17.1 2,16C2,14.9 2.9,14 4,14C5.1,14 6,14.9 6,16M13,14C13,15.1 12.1,16 11,16C9.9,16 9,15.1 9,14C9,12.9 9.9,12 11,12C12.1,12 13,12.9 13,14M15,19L22,12M17,12H22V17"/>
-</vector>

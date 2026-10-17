@@ -1,9 +1,0 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <!-- Video-frame outline with an outward share arrow. -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#FF000000" android:strokeWidth="1.8"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M12,17H4C2.9,17 2,16.1 2,15V6C2,4.9 2.9,4 4,4H17C18.1,4 19,4.9 19,6V10M8,7L12,10.5L8,14V7M14,20L22,12M17,12H22V17"/>
-</vector>
