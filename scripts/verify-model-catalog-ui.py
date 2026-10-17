@@ -16,7 +16,7 @@ version = dict(line.split('=', 1) for line in (root / 'version.properties').read
 checks = {
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
-    'two NPU cards share GPU card layout': models.count('ModelCatalogCard(') == 2
+    'NPU cards share GPU card layout': models.count('ModelCatalogCard(') >= 3
         and 'LocalAsrModelCard(' in models and 'ModelCatalogCard(' in card,
     'NPU download IDs preserved': 'id = NpuPackageStore.DOWNLOAD_ID' in models
         and 'id = OmiNpuPackageStore.DOWNLOAD_ID' in models,
@@ -29,11 +29,7 @@ checks = {
         and 'GPU models provide good speed' in models
         and 'CPU models are the slowest.' in models
         and 'Whisperapp/Models' in models,
-    'no user-facing experimental label': all('experimental' not in x.lower() for x in
-        [models.replace('ExperimentalMaterial3Api', ''), settings.replace('ExperimentalMaterial3Api', ''),
-         (base / 'transcribe/TranscriptionService.kt').read_text(),
-         (base / 'MainActivity.kt').read_text().replace('ExperimentalFoundationApi', '').replace('ExperimentalMaterial3Api', ''),
-         omi.split('const val DISPLAY_NAME = ')[1].split('\n')[0]]),
+    'Qwen experimental label scoped to Qwen': 'experimental' in models.lower() and 'experimental' not in omi.split('const val DISPLAY_NAME = ')[1].split('\n')[0].lower(),
     'Omi removal is confirmed and scoped': 'omiDeleteConfirm' in models
         and 'fun deleteArchive(context: Context): Boolean' in omi
         and 'SafStorage.deleteDocument(context, packageDir)' in omi

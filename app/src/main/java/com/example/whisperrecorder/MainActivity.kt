@@ -51,6 +51,7 @@ import com.example.whisperrecorder.models.ModelSelectionResolver
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import com.example.whisperrecorder.models.ModelDownloadRuntime
 import com.example.whisperrecorder.models.ModelDownloadService
 import com.example.whisperrecorder.transcribe.TranscriptionRuntime
@@ -1428,7 +1429,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(subScreen) { if (subScreen == null) performancePreset = AppPrefs.getPerformancePreset(this@MainActivity) }
 
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-        val performanceSummary = if (AppPrefs.getTranscriptionEngine(this@MainActivity) in listOf("parakeet_npu", "omi_npu")) {
+        val performanceSummary = if (AppPrefs.getTranscriptionEngine(this@MainActivity) in listOf("parakeet_npu", "omi_npu", "qwen3_hybrid")) {
             "NPU Auto • provider-default baseline"
         } else when (performancePreset) {
             "high" -> "High Performance • ${minOf(6, cores)} threads"
@@ -1457,6 +1458,8 @@ class MainActivity : ComponentActivity() {
                         engine == "parakeet_npu" -> "NPU package is incomplete • repair or reinstall"
                         engine == "omi_npu" && OmiNpuPackageStore.archiveState(this@MainActivity) == NpuArchiveState.READY -> "English • medical-domain • Qualcomm NPU"
                         engine == "omi_npu" -> "Omi NPU package is incomplete • repair or reinstall"
+                        engine == "qwen3_hybrid" && Qwen3HybridPackageStore.state(this@MainActivity) == NpuArchiveState.READY -> "Experimental • Qwen FP16 NPU encoder + FP32 CPU decoder"
+                        engine == "qwen3_hybrid" -> "Qwen hybrid package is incomplete • repair or reinstall"
                         engine == "parakeet" && LocalAsrModelManager.byEngine(engine)?.let { LocalAsrModelManager.isInstalled(this@MainActivity, it) } == true -> "${ModelManager.whisperLanguages[pref.takeUnless { it == "auto" } ?: "en"] ?: "English"} • 25 European languages"
                         engine == "parakeet" -> "Parakeet files are incomplete • restore or reinstall"
                         localModel != null && !LocalAsrModelManager.isInstalled(this@MainActivity, localModel) -> "${localModel.name} is incomplete • restore or reinstall"
@@ -1523,7 +1526,7 @@ class MainActivity : ComponentActivity() {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Text("Whisper Recorder", style = MaterialTheme.typography.titleMedium)
-                            Text("Version ${getString(R.string.app_version_name)} (${getString(R.string.app_release_version)}) • parakeet.cpp OpenCL production runtime", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Version ${runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: getString(R.string.app_version_name)} (${getString(R.string.app_release_version)}) • parakeet.cpp OpenCL production runtime", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

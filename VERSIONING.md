@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.34
-versionName=6.5.34
-versionCode=65034
+releaseVersion=6.5.36
+versionName=6.5.36
+versionCode=65036
 ```
 
-This source targets v6.5.34. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.36. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -93,6 +93,13 @@ transcription inference, speaker diarization, signing identity or storage format
 Android Gradle compilation and on-device regression testing remain pending.
 `versionCode=65022`.
 
+
+## v6.5.35 (diagnostic ZIPs in Workspace Logs)
+
+New diagnostic ZIPs are published to the user-selected `Whisperapp/Logs` SAF directory,
+with checksum verification and a bounded app-private fallback if the provider is unavailable.
+Existing private reports remain accessible; deletion only targets generated ZIP names.
+Version code 65035; debug application version 6.5.35-dev.
 
 ## v6.5.34 (diagnostics foundation source candidate)
 

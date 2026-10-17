@@ -1,5 +1,10 @@
 package com.example.whisperrecorder.diagnostics
 
+import android.net.Uri
+import androidx.core.content.FileProvider
+import com.example.whisperrecorder.data.AppPrefs
+import com.example.whisperrecorder.data.SafStorage
+import com.example.whisperrecorder.data.WorkspaceStorage
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
@@ -13,14 +18,17 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.security.MessageDigest
+import java.util.zip.ZipFile
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Private, bounded, local diagnostic archives. Never reads recordings, transcripts, model
- * weights, token values, SAF URLs, or arbitrary files. Existing logging remains intact.
- * The ZIP contains only explicitly assembled performance and failure metadata.
+ * Bounded diagnostic archives published in the existing user-selected Whisperapp/Logs folder.
+ * Private storage is used only for atomic staging, the interruption marker, and a fallback
+ * when SAF storage is unavailable. Existing logging remains intact. Never reads recordings,
+ * transcripts, model weights, token values, or arbitrary files into the ZIP.
  */
 object DiagnosticReports {
     private const val MAX_REPORTS = 8
@@ -28,24 +36,113 @@ object DiagnosticReports {
     private const val MAX_SAMPLES = 2048
     private val fileLock = Any()
     private const val PREFIX = "WhisperRecorder-Diagnostics-"
+    // Restrict listing, retention and deletion to files produced by this component.
+    private val legacyName = Regex("^WhisperRecorder-Diagnostics-[0-9]{8}-[0-9]{6}-[0-9]{3}-[a-f0-9]{8}\\.zip$")
+    private val devName = Regex("^WhisperRecorder-Diagnostics-dev-[0-9]{8}-[0-9]{6}-[0-9]{3}-[a-f0-9]{8}\\.zip$")
+    private fun ownedName(context: Context, name: String): Boolean =
+        if (context.packageName.endsWith(".dev")) devName.matches(name) else legacyName.matches(name)
+    private fun privateName(context: Context, name: String): Boolean =
+        ownedName(context, name) || (context.packageName.endsWith(".dev") && legacyName.matches(name))
+
+    enum class Location { WORKSPACE_LOGS, PRIVATE_FALLBACK }
+
+    data class Report internal constructor(
+        val name: String,
+        val sizeBytes: Long,
+        val location: Location,
+        internal val uri: Uri? = null,
+        internal val file: File? = null
+    )
 
     private fun directory(context: Context): File =
         File(context.filesDir, "diagnostics/reports").apply { mkdirs() }
 
-    fun list(context: Context): List<File> = synchronized(fileLock) {
-        directory(context).listFiles().orEmpty()
-            .filter { it.isFile && it.name.startsWith(PREFIX) && it.name.endsWith(".zip") }
-            .sortedByDescending { it.lastModified() }
+    private fun workspaceReports(context: Context): List<Report> {
+        val tree = AppPrefs.getSaveTree(context) ?: return emptyList()
+        val logs = WorkspaceStorage.logsDirectory(context, tree)
+        return SafStorage.listDirectory(context, tree, logs)
+            .filter { ownedName(context, it.name) }
+            .map { Report(it.name, it.size, Location.WORKSPACE_LOGS, uri = it.uri) }
+    }
+
+    fun list(context: Context): List<Report> = synchronized(fileLock) {
+        // A revoked/unavailable SAF grant must never hide an earlier private report.
+        val workspace = runCatching { workspaceReports(context) }.getOrDefault(emptyList())
+        val names = workspace.mapTo(HashSet()) { it.name }
+        val privateReports = directory(context).listFiles().orEmpty()
+            .filter { it.isFile && privateName(context, it.name) && it.name !in names }
+            .map { Report(it.name, it.length(), Location.PRIVATE_FALLBACK, file = it) }
+        (workspace + privateReports).sortedByDescending { it.name }
+    }
+
+    fun shareUri(context: Context, report: Report): Uri = when (report.location) {
+        Location.WORKSPACE_LOGS -> requireNotNull(report.uri)
+        Location.PRIVATE_FALLBACK -> FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", requireNotNull(report.file))
     }
 
     fun delete(context: Context, name: String): Boolean = synchronized(fileLock) {
-        // File deletion is deliberately scoped to a fixed app-private directory.
-        val item = list(context).firstOrNull { it.name == name } ?: return@synchronized false
-        item.delete()
+        // No arbitrary file deletion from the user's Logs folder, even with a forged name.
+        if (!privateName(context, name)) return@synchronized false
+        val report = list(context).firstOrNull { it.name == name } ?: return@synchronized false
+        deleteReport(context, report)
     }
 
     fun deleteAll(context: Context): Int = synchronized(fileLock) {
-        list(context).count { it.delete() }
+        list(context).count { deleteReport(context, it) }
+    }
+
+    private fun deleteReport(context: Context, report: Report): Boolean = when (report.location) {
+        Location.WORKSPACE_LOGS -> report.uri?.let { SafStorage.deleteDocument(context, it) } ?: false
+        Location.PRIVATE_FALLBACK -> report.file?.delete() == true
+    }
+
+    /** Shareable location for UI; the user-selected workspace takes priority. */
+    fun storageDescription(context: Context): String =
+        if (AppPrefs.getSaveTree(context) == null) "Private fallback: select a workspace folder to use Whisperapp/Logs"
+        else "Whisperapp/Logs in your selected workspace (private fallback if unavailable)"
+
+    private fun sha256(input: java.io.InputStream): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        input.use { stream ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val n = stream.read(buffer)
+                if (n < 0) break
+                if (n > 0) digest.update(buffer, 0, n)
+            }
+        }
+        return digest.digest()
+    }
+
+    private fun publish(context: Context, source: File): Report {
+        // A valid ZIP is prepared locally before any SAF I/O. If access is revoked,
+        // retain the complete report privately rather than losing failure diagnostics.
+        ZipFile(source).use { require(it.getEntry("manifest.json") != null) }
+        val tree = AppPrefs.getSaveTree(context) ?: return Report(
+            source.name, source.length(), Location.PRIVATE_FALLBACK, file = source)
+        val published = runCatching {
+            val logs = WorkspaceStorage.logsDirectory(context, tree)
+            val uri = SafStorage.copyFileToDirectory(
+                context, source, tree, logs, "application/zip", source.name)
+            try {
+                check(SafStorage.displayName(context, uri) == source.name) {
+                    "Provider changed the diagnostic ZIP filename"
+                }
+                val verified = requireNotNull(context.contentResolver.openInputStream(uri))
+                    .let { sha256(it) }.contentEquals(sha256(source.inputStream()))
+                check(verified) { "Copied diagnostic ZIP failed checksum verification" }
+            } catch (error: Exception) {
+                SafStorage.deleteDocument(context, uri)
+                throw error
+            }
+            Report(source.name, source.length(), Location.WORKSPACE_LOGS, uri = uri)
+        }.getOrNull()
+        if (published != null) {
+            source.delete() // If deletion fails, the duplicate is excluded from listings by name.
+            return published
+        }
+        return Report(source.name, source.length(), Location.PRIVATE_FALLBACK, file = source)
     }
 
     fun begin(context: Context, engine: String, audioDurationMs: Long): Session {
@@ -54,13 +151,13 @@ object DiagnosticReports {
             audioDurationMs.coerceAtLeast(0))
     }
 
-    fun manualSnapshot(context: Context): File? =
+    fun manualSnapshot(context: Context): Report? =
         Session(context.applicationContext, "manual", 0L, false).apply {
             event("manual_diagnostic_snapshot")
         }.finish("manual")
 
     /** Identifies interrupted work on a subsequent app launch without storing recording IDs. */
-    fun recoverAbandoned(context: Context): File? = synchronized(fileLock) {
+    fun recoverAbandoned(context: Context): Report? = synchronized(fileLock) {
         val marker = File(directory(context), "active-session.json")
         if (!marker.isFile) return@synchronized null
         val metadata = runCatching { JSONObject(marker.readText()) }.getOrNull()
@@ -83,6 +180,7 @@ object DiagnosticReports {
         private val startElapsed = SystemClock.elapsedRealtime()
         private val startEpoch = System.currentTimeMillis()
         private val samples = ArrayList<JSONObject>()
+        private val workerMetrics = ArrayList<JSONObject>()
         private var closed = false
         private var dropped = 0
         private val sessionId = UUID.randomUUID().toString()
@@ -108,17 +206,33 @@ object DiagnosticReports {
             samples.add(item)
         }
 
+        /** Numeric-only cross-process profiling. Never accepts filenames, transcript text or token IDs. */
+        @Synchronized fun workerMetric(name: String, value: Long, segmentIndex: Int) {
+            if (closed) return
+            if (workerMetrics.size >= MAX_SAMPLES) { dropped++; return }
+            if (name !in setOf("preprocess_ms", "encoder_ms", "decoder_load_ms", "decoder_ms",
+                    "prefill_ms", "step_ms", "decoder_steps", "generated_token_count",
+                    "embedding_io_ms", "argmax_ms", "decoder_threads", "worker_cpu_ms",
+                    "worker_wall_ms", "worker_pss_kb", "thermal_start", "thermal_end",
+                    "encoder_graph_calls", "decoder_npu_graph_calls", "decoder_kv_payload_bytes_max",
+                    "decoder_step_p50_ms", "decoder_step_p95_ms", "decoder_step_max_ms",
+                    "qwen_cleanup_verified")) return
+            workerMetrics.add(JSONObject().put("name", name).put("value", value.coerceAtLeast(0))
+                .put("segment_index", segmentIndex.coerceAtLeast(0)))
+        }
+
         @Synchronized fun finish(
             outcome: String,
             failureStage: String? = null,
             error: Throwable? = null,
             totals: Map<String, Long> = emptyMap()
-        ): File? {
+        ): Report? {
             if (closed) return null
             closed = true
             val endElapsed = SystemClock.elapsedRealtime()
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())
-            val name = "$PREFIX$stamp-${sessionId.take(8)}.zip"
+            val variant = if (context.packageName.endsWith(".dev")) "dev-" else ""
+            val name = "$PREFIX$variant$stamp-${sessionId.take(8)}.zip"
             val reports = directory(context)
             val temporary = File(reports, ".$name.part")
             val final = File(reports, name)
@@ -192,6 +306,7 @@ object DiagnosticReports {
                         add("performance/totals.json", counts.toString(2))
                         add("errors/failure.json", failure.toString(2))
                         add("performance/stage-events.json", JSONArray(samples).toString(2))
+                        add("performance/qwen-worker-metrics.json", JSONArray(workerMetrics).toString(2))
                         add("audit/collection-status.json", JSONObject()
                             .put("status", "complete")
                             .put("bounded_events", true)
@@ -199,6 +314,7 @@ object DiagnosticReports {
                     }
                 }
                 check(temporary.renameTo(final)) { "Report publication failed" }
+                val published = synchronized(fileLock) { publish(context, final) }
                 synchronized(fileLock) {
                     // Only delete our own active marker; never touch model or workspace files.
                     val registeredAt = runCatching { JSONObject(activeMarker.readText())
@@ -206,7 +322,7 @@ object DiagnosticReports {
                     if (registeredAt == startEpoch) activeMarker.delete()
                     prune(context)
                 }
-                final
+                published
             } catch (_: Exception) {
                 temporary.delete()
                 null
@@ -224,13 +340,13 @@ object DiagnosticReports {
     }
 
     private fun prune(context: Context) {
-        val files = list(context).sortedBy { it.lastModified() }
-        var bytes = files.sumOf { it.length() }
+        val files = list(context).sortedBy { it.name }
+        var bytes = files.sumOf { it.sizeBytes }
         var count = files.size
         for (file in files) {
             if (count <= MAX_REPORTS && bytes <= MAX_TOTAL_BYTES) break
-            val size = file.length()
-            if (file.delete()) { bytes -= size; count-- }
+            val size = file.sizeBytes
+            if (deleteReport(context, file)) { bytes -= size; count-- }
         }
     }
 }

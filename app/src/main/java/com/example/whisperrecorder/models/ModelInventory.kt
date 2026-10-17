@@ -7,6 +7,7 @@ import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import com.example.whisperrecorder.transcribe.AsrEngine
 import com.example.whisperrecorder.transcribe.AccelerationPolicy
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,7 @@ object ModelInventoryLoader {
             }
             AccelerationPolicy.preferredAvailable(available)?.let { chosen ->
                 val path = when (chosen) {
-                    AsrEngine.PARAKEET_NPU, AsrEngine.OMI_NPU -> null
+                    AsrEngine.PARAKEET_NPU, AsrEngine.OMI_NPU, AsrEngine.QWEN3_HYBRID -> null
                     AsrEngine.WHISPER -> whisperInstalled.first().absolutePath
                     else -> LocalAsrModelManager.byEngine(chosen)?.let {
                         LocalAsrModelManager.modelFile(context, it).absolutePath
@@ -62,6 +63,7 @@ object ModelInventoryLoader {
         val selectedPath = when {
             selectedEngine == "parakeet_npu" && NpuPackageStore.archiveState(context) == NpuArchiveState.READY -> NpuPackageStore.TRANSCRIPTION_MODEL_KEY
             selectedEngine == "omi_npu" && OmiNpuPackageStore.archiveState(context) == NpuArchiveState.READY -> OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY
+            selectedEngine == "qwen3_hybrid" && Qwen3HybridPackageStore.state(context) == NpuArchiveState.READY -> Qwen3HybridPackageStore.MODEL_KEY
             selectedEngine in LocalAsrModelManager.engineIds -> LocalAsrModelManager.byEngine(selectedEngine)
                 ?.takeIf { it.id in localInstalledIds }
                 ?.let { LocalAsrModelManager.modelFile(context, it).absolutePath }

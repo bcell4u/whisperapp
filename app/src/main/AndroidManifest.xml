@@ -70,6 +70,11 @@
             android:process=":opencl"
             android:stopWithTask="false" />
         <service
+            android:name=".qwen.Qwen3HybridWorkerService"
+            android:exported="false"
+            android:process=":qwen"
+            android:stopWithTask="true" />
+        <service
             android:name=".npu.NpuRuntimeWorkerService"
             android:exported="false"
             android:process=":npu"

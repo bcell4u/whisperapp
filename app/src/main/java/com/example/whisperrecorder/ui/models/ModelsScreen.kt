@@ -24,6 +24,10 @@ import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
+import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
+import com.example.whisperrecorder.qwen.Qwen3HybridClient
+import com.example.whisperrecorder.diagnostics.DiagnosticReports
 import com.example.whisperrecorder.transcribe.AsrEngine
 import com.example.whisperrecorder.transcribe.TranscriptionRuntime
 import com.example.whisperrecorder.ui.BackArrowButton
@@ -61,6 +65,15 @@ internal fun ModelsScreen(
     var removeLocalTarget by remember { mutableStateOf<LocalAsrModel?>(null) }
     var npuArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var omiArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
+    var qwenVisibleSaved by remember { mutableStateOf(false) }
+    var qwenStateChecking by remember { mutableStateOf(true) }
+    var qwenDeleteConfirm by remember { mutableStateOf(false) }
+    var qwenLegacyDeleteConfirm by remember { mutableStateOf(false) }
+    var qwenCompactDeleteConfirm by remember { mutableStateOf(false) }
+    var qwenReclaimConfirm by remember { mutableStateOf(false) }
+    var qwenFastDecoder by remember { mutableStateOf(QwenDecoderPerformancePolicy.fast(context)) }
+    var qwenFp16EmbeddingTrial by remember { mutableStateOf(QwenDecoderPerformancePolicy.useFp16EmbeddingTrial(context)) }
     var npuDeleteConfirm by remember { mutableStateOf(false) }
     var omiDeleteConfirm by remember { mutableStateOf(false) }
     var npuActionRunning by remember { mutableStateOf(false) }
@@ -126,6 +139,46 @@ internal fun ModelsScreen(
         }
     }
 
+    // Independently recheck app-private Qwen files whenever this screen opens or a download
+    // state changes. The previous guard skipped this check if the last download was for
+    // Parakeet/Omi/Whisper, leaving a working Qwen install falsely shown as "Download".
+    suspend fun refreshQwenState(): NpuArchiveState {
+        qwenStateChecking = true
+        return try {
+            val (result, archived) = withContext(Dispatchers.IO) {
+                Qwen3HybridPackageStore.state(context) to Qwen3HybridPackageStore.visibleArchiveReady(context)
+            }
+            qwenArchiveState = result
+            qwenVisibleSaved = archived
+            result
+        } finally { qwenStateChecking = false }
+    }
+    LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
+        refreshQwenState()
+    }
+
+    if (qwenDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { qwenDeleteConfirm = false },
+            title = { Text("Remove Qwen3 hybrid model?") },
+            text = { Text("Remove the Qwen app-private runtime working copy? The user-visible archive in Whisperapp/Models, if saved, will NOT be deleted. Reusing the archive may require an offline restore.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenDeleteConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val removed = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.delete(context) }
+                            qwenArchiveState = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.state(context) }
+                            refreshModels(false)
+                            status = if (removed) "Qwen runtime working copy removed; saved Whisperapp/Models archive retained" else "Qwen runtime working copy could not be fully removed"
+                        } finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) { Text("Remove") }
+            }, dismissButton = { TextButton(onClick = { qwenDeleteConfirm = false }) { Text("Cancel") } }
+        )
+    }
+
     removeLocalTarget?.let { model ->
         AlertDialog(
             onDismissRequest = { removeLocalTarget = null },
@@ -171,7 +224,7 @@ internal fun ModelsScreen(
                 }
             }
 
-            item { SectionLabel("QUALCOMM NPU") }
+            item { SectionLabel("NPU") }
             item {
                 ModelCatalogCard(
                     details = ModelCardDetails(
@@ -251,8 +304,191 @@ internal fun ModelsScreen(
                 )
             }
 
-            item { SectionLabel("NVIDIA PARAKEET") }
-            items(LocalAsrModelManager.nvidiaParakeetModels, key = { "parakeet-local-${it.id}" }) { model ->
+            item {
+                ModelCatalogCard(
+                    details = ModelCardDetails(
+                        id = Qwen3HybridPackageStore.DOWNLOAD_ID,
+                        name = Qwen3HybridPackageStore.DISPLAY_NAME,
+                        licenseName = "Apache 2.0 · Experimental hybrid, not clinically validated",
+                        sizeLabel = Qwen3HybridPackageStore.packageDescription(context),
+                        languageCount = 30
+                    ),
+                    installed = qwenArchiveState == NpuArchiveState.READY,
+                    persistent = qwenVisibleSaved,
+                    selected = selectedEngine == AsrEngine.QWEN3_HYBRID.id,
+                    restoring = npuActionRunning || localRestoringId != null || qwenStateChecking,
+                    partialDownload = qwenArchiveState == NpuArchiveState.INCOMPLETE,
+                    modelDownload = modelDownload,
+                    removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
+                    onUse = {
+                        scope.launch {
+                            npuActionRunning = true
+                            try {
+                                withContext(Dispatchers.IO) { Qwen3HybridPackageStore.select(context) }
+                                selectedEngine = AsrEngine.QWEN3_HYBRID.id
+                                selectedPath = Qwen3HybridPackageStore.MODEL_KEY
+                                status = "Experimental Qwen hybrid selected. First verify QNN restoration on the S26."
+                            } catch (t: Throwable) { status = "Cannot select Qwen hybrid: ${t.message}" }
+                            finally { npuActionRunning = false }
+                        }
+                    },
+                    onDownload = {
+                        scope.launch {
+                            // A download button rendered from stale UI state must never trigger
+                            // a needless multi-gigabyte Qwen download. Recheck local files first.
+                            val actual = refreshQwenState()
+                            if (actual == NpuArchiveState.READY) {
+                                status = "Existing Qwen model detected; no download needed. Tap Use."
+                            } else {
+                                onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID)
+                            }
+                        }
+                    },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://huggingface.co/${Qwen3HybridPackageStore.REPO_ID}/tree/main"))) },
+                    onRemove = { qwenDeleteConfirm = true }
+                )
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        val actual = refreshQwenState()
+                        status = when (actual) {
+                            NpuArchiveState.READY -> if (qwenVisibleSaved)
+                                "Qwen found in Whisperapp/Models. Use does not require a download."
+                                else "Existing Qwen working copy found. Tap Save existing Qwen to Whisperapp/Models to archive it offline."
+                            NpuArchiveState.INCOMPLETE -> "Qwen files found but package verification is incomplete. Use Resume to repair, without deleting existing files."
+                            NpuArchiveState.NOT_INSTALLED -> "No installed Qwen package found in the app's recognized folders."
+                        }
+                    }
+                }, enabled = !qwenStateChecking && !modelDownload.active && !npuActionRunning) {
+                    Text("Recheck installed Qwen model")
+                }
+                if (qwenArchiveState == NpuArchiveState.READY && !qwenVisibleSaved) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            npuActionRunning = true
+                            status = "Saving existing Qwen bytes to the selected Whisperapp/Models folder (offline). This may require several GB of available space."
+                            try {
+                                val location = withContext(Dispatchers.IO) {
+                                    Qwen3HybridPackageStore.saveInstalledToWhisperappModels(context)
+                                }
+                                qwenVisibleSaved = withContext(Dispatchers.IO) {
+                                    Qwen3HybridPackageStore.visibleArchiveReady(context)
+                                }
+                                status = "Qwen saved in $location. Existing runtime weights retained; no network download."
+                            } catch (t: Throwable) {
+                                status = "Qwen archive copy failed; existing working model preserved: ${t.message}"
+                            } finally { npuActionRunning = false }
+                        }
+                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Save existing Qwen to Whisperapp/Models (no download)")
+                    }
+                }
+                if (qwenArchiveState == NpuArchiveState.READY) {
+                    OutlinedButton(onClick = {
+                        qwenFastDecoder = !qwenFastDecoder
+                        QwenDecoderPerformancePolicy.setFast(context, qwenFastDecoder)
+                        status = if (qwenFastDecoder)
+                            "Qwen speed experiment: 4 CPU decoder threads on the NEXT transcription. Compare time and phone heat to 2 threads."
+                        else "Qwen balanced decoder: 2 CPU threads on the NEXT transcription."
+                    }, enabled = !transcriptionState.active && !npuActionRunning) {
+                        Text(if (qwenFastDecoder) "Qwen CPU decoder: 4 threads (speed test)" else "Qwen CPU decoder: 2 threads (balanced) — tap to test 4")
+                    }
+                    OutlinedButton(onClick = {
+                        qwenFp16EmbeddingTrial = !qwenFp16EmbeddingTrial
+                        QwenDecoderPerformancePolicy.setFp16EmbeddingTrial(context, qwenFp16EmbeddingTrial)
+                        status = if (qwenFp16EmbeddingTrial)
+                            "K2A FP16 trial selected. Only exact SHA-256 verified companion files will load; baseline weights remain preserved."
+                        else "K2A trial disabled; original verified FP32 embeddings used."
+                    }, enabled = !transcriptionState.active && !npuActionRunning) {
+                        Text(if (qwenFp16EmbeddingTrial)
+                            "K2A FP16 embeddings: experimental ON (tap for baseline)"
+                            else "K2A FP16 embeddings: OFF (optional parity trial)")
+                    }
+                    if (qwenVisibleSaved) {
+                        OutlinedButton(onClick = { qwenReclaimConfirm = true },
+                            enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                            Text("Reclaim duplicate private Qwen weights (after shared-runtime test)")
+                        }
+                    }
+                }
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val cleared = withContext(Dispatchers.IO) {
+                                Qwen3HybridPackageStore.clearTemporaryTestFiles(context)
+                            }
+                            status = if (cleared) "Qwen temporary test files deleted and verified"
+                                else "Qwen temporary test files could not be fully deleted"
+                        } catch (t: Throwable) { status = "Qwen temporary cleanup failed: ${t.message}" }
+                        finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                    Text("Clear Qwen temporary test files (manual)")
+                }
+                if (qwenArchiveState == NpuArchiveState.READY && !Qwen3HybridPackageStore.fp16Installed(context)) {
+                    OutlinedButton(onClick = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
+                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Upgrade Qwen to smaller Stage I FP16-storage model")
+                    }
+                }
+                if ((Qwen3HybridPackageStore.fp16Installed(context) || Qwen3HybridPackageStore.compactInstalled(context)) && Qwen3HybridPackageStore.legacyInstalled(context)) {
+                    OutlinedButton(onClick = { qwenLegacyDeleteConfirm = true                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Remove old Qwen v1 weights (newer model verified)")
+                    }
+                }
+                if (Qwen3HybridPackageStore.fp16Installed(context) && Qwen3HybridPackageStore.compactInstalled(context)) {
+                    OutlinedButton(onClick = { qwenCompactDeleteConfirm = true },
+                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Remove previous Qwen v2 decoder package (v3 verified)")
+                    }
+                }
+                if (qwenArchiveState == NpuArchiveState.INCOMPLETE) {
+                    OutlinedButton(onClick = { qwenDeleteConfirm = true },
+                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Clear incomplete Qwen downloads")
+                    }
+                }
+                if (qwenArchiveState == NpuArchiveState.READY) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            npuActionRunning = true
+                            status = "Testing Qwen Android mel parity and S26 QNN context loading…"
+                            try {
+                                val report = withContext(Dispatchers.IO) {
+                                    val probe = DiagnosticReports.begin(context, "qwen3_hybrid_encoder_probe", 0L)
+                                    try {
+                                        val result = Qwen3HybridClient.connect(context).use { it.prepare() }
+                                        if (result.optBoolean("ok")) {
+                                            probe.event("qwen_encoder_probe_success", result.optLong("golden_encoder_inference_ms", 0L))
+                                            probe.workerMetric("encoder_graph_calls", result.optLong("native_android_qnn_encoder_graph_calls", 0L), 0)
+                                            probe.finish("success")
+                                        } else {
+                                            probe.event("qwen_encoder_probe_failed")
+                                            probe.finish("failure", "loading_model", IllegalStateException("Qwen encoder probe rejected"))
+                                        }
+                                        result
+                                    } catch (t: Throwable) {
+                                        probe.event("qwen_encoder_probe_exception")
+                                        probe.finish("failure", "loading_model", t)
+                                        throw t
+                                    }
+                                }
+                                status = if (report.optBoolean("ok"))
+                                    "Qwen encoder loaded with CPU fallback disabled; experimental transcription may now be tested"
+                                else "Qwen compatibility test failed: ${report.optString("error")}" 
+                            } catch (t: Throwable) { status = "Qwen probe error: ${t.message}" }
+                            finally { npuActionRunning = false }
+                        }
+                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Test Qwen preprocessing + S26 NPU encoder")
+                    }
+                }
+            }
+
+            item { SectionLabel("GPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.PARAKEET || it.engine == AsrEngine.OMI }, key = { "gpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -273,8 +509,8 @@ internal fun ModelsScreen(
                 )
             }
 
-            item { SectionLabel("ADVANCED LOCAL ASR") }
-            items(LocalAsrModelManager.advancedModels, key = { "local-${it.id}" }) { model ->
+            item { SectionLabel("CPU") }
+            items(LocalAsrModelManager.catalog.filter { it.engine == AsrEngine.QWEN3 }, key = { "cpu-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -296,70 +532,119 @@ internal fun ModelsScreen(
             }
 
             val customModels = installed.filter { ModelManager.builtInFor(it) == null }
-            if (customModels.isNotEmpty()) {
-                item { SectionLabel("IMPORTED WHISPER") }
-                items(customModels, key = { it.absolutePath }) { file ->
-                    val isSelected = selectedEngine == "whisper" && selectedPath == file.absolutePath
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(ModelManager.displayName(file), fontWeight = FontWeight.SemiBold)
-                            Text("${file.length() / (1024 * 1024)} MiB${if (isSelected) " • Active" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(ModelManager.languageSupportLabel(file), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Button(
-                                onClick = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedPath = file.absolutePath },
-                                enabled = !modelDownload.active && localRestoringId == null && !isSelected
-                            ) { Text(if (isSelected) "Selected" else "Use") }
-                            ModelRemovalAction(
-                                visible = true,
-                                enabled = !transcriptionState.active && !modelDownload.active && localRestoringId == null && !npuActionRunning,
-                                onClick = { deleteTarget = file }
-                            )
-                        }
-                    }
-                }
+            items(customModels, key = { it.absolutePath }) { file ->
+                val isSelected = selectedEngine == "whisper" && selectedPath == file.absolutePath
+                ModelCatalogCard(
+                    details = ModelCardDetails(file.absolutePath, ModelManager.displayName(file), "Imported Whisper · CPU",
+                        "${file.length() / (1024 * 1024)} MiB", ModelManager.whisperLanguages.size - 1),
+                    installed = true, persistent = false, selected = isSelected,
+                    restoring = localRestoringId != null || npuActionRunning,
+                    partialDownload = false, modelDownload = modelDownload,
+                    onUse = { ModelManager.select(context, file); selectedEngine = "whisper"; selectedPath = file.absolutePath },
+                    onDownload = {}, onCancel = onCancelModelDownload, onOpenModel = null,
+                    removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
+                    onRemove = { deleteTarget = file }
+                )
             }
-
-            item { SectionLabel("MULTILINGUAL") }
             items(ModelManager.multilingualBuiltIns, key = { it.id }) { model ->
                 val already = installed.firstOrNull { ModelManager.builtInFor(it)?.id == model.id }
                 val persistentDetected = model.id in persistentModelIds
                 val isSelected = selectedEngine == "whisper" && already != null && selectedPath == already.absolutePath
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(model.name, fontWeight = FontWeight.SemiBold)
-                                Text(if (already != null) "${already.length() / (1024 * 1024)} MiB${if (isSelected) " • Active" else " • Installed"}" else model.approxSize, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(ModelManager.languageSupportLabel(model), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (already == null) {
-                                if (modelDownload.active && modelDownload.modelId == model.id) OutlinedButton(onClick = { onCancelModelDownload() }) { Text("Cancel") }
-                                else Button(onClick = { onStartModelDownload(model.id) }, enabled = !modelDownload.active && localRestoringId == null) { Text(if (ModelManager.hasPartialDownload(context, model)) "Resume" else "Download") }
-                            } else {
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Button(
-                                        onClick = { ModelManager.select(context, already); selectedEngine = "whisper"; selectedPath = already.absolutePath },
-                                        enabled = !modelDownload.active && localRestoringId == null && !isSelected
-                                    ) { Text(if (isSelected) "Selected" else "Use") }
-                                    if (persistentDetected && !isSelected) Text("Model available", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
+                ModelCatalogCard(
+                    details = ModelCardDetails(model.id, "Whisper ${model.name}", "whisper.cpp · CPU",
+                        model.approxSize, ModelManager.whisperLanguages.size - 1),
+                    installed = already != null, persistent = persistentDetected, selected = isSelected,
+                    restoring = localRestoringId != null || npuActionRunning,
+                    partialDownload = ModelManager.hasPartialDownload(context, model), modelDownload = modelDownload,
+                    onUse = {
                         if (already != null) {
-                            ModelRemovalAction(
-                                visible = true,
-                                enabled = !transcriptionState.active && !modelDownload.active && localRestoringId == null && !npuActionRunning,
-                                onClick = { deleteTarget = already }
-                            )
+                            ModelManager.select(context, already)
+                            selectedEngine = "whisper"; selectedPath = already.absolutePath
+                        } else {
+                            status = "Restore the saved Whisper model from Models & downloads"
                         }
-                        if (modelDownload.active && modelDownload.modelId == model.id) {
-                            DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                            Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
+                    },
+                    onDownload = { onStartModelDownload(model.id) },
+                    onCancel = onCancelModelDownload,
+                    onOpenModel = { context.startActivity(Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://huggingface.co/ggerganov/whisper.cpp"))) },
+                    removalEnabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning,
+                    onRemove = { if (already != null) deleteTarget = already }
+                )
             }
         }
+    }
+
+    if (qwenReclaimConfirm) {
+        AlertDialog(onDismissRequest = { qwenReclaimConfirm = false },
+            title = { Text("Reclaim duplicate Qwen storage?") },
+            text = { Text("Only after a successful transcription using the Qwen shared-folder file-descriptor loader, this deletes its extra APP-PRIVATE copy. The saved Qwen package in Whisperapp/Models stays intact. If the document provider cannot load shared files on a future run, a temporary verified copy may be required. Never uninstall or clear app data to perform this operation.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenReclaimConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val bytes = withContext(Dispatchers.IO) {
+                                Qwen3HybridPackageStore.reclaimPrivateDuplicate(context)
+                            }
+                            status = "Removed $bytes bytes of duplicate Qwen app-private weights; Whisperapp/Models retained"
+                            refreshQwenState()
+                        } catch (t: Throwable) {
+                            status = "Private Qwen backup preserved: ${t.message}"
+                        } finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                    Text("Reclaim private duplicate")
+                }
+            }, dismissButton = { TextButton(onClick = { qwenReclaimConfirm = false }) { Text("Cancel") } })
+    }
+
+    if (qwenCompactDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { qwenCompactDeleteConfirm = false },
+            title = { Text("Remove older Qwen v2 files?") },
+            text = { Text("Only the Stage H compact FP32 package will be removed, after SHA-256 verification of the newer Stage I FP16-storage package. The NPU encoder, recordings and other models remain untouched.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenCompactDeleteConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val ok = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.removeCompactAfterFp16(context) }
+                            status = if (ok) "Previous Qwen v2 weights removed; verified FP16 v3 retained" else "Old compact Qwen files could not be fully removed"
+                        } catch (t: Throwable) { status = "Qwen v2 cleanup failed: ${t.message}" }
+                        finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) { Text("Remove older v2 package") }
+            },
+            dismissButton = { TextButton(onClick = { qwenCompactDeleteConfirm = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (qwenLegacyDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { qwenLegacyDeleteConfirm = false },
+            title = { Text("Remove old Qwen weights?") },
+            text = { Text("Your newer verified Qwen model will be retained. Only the obsolete app-private Qwen Stage G decoder package will be deleted. Your recordings and other ASR models will not be touched.") },
+            confirmButton = {
+                Button(onClick = {
+                    qwenLegacyDeleteConfirm = false
+                    scope.launch {
+                        npuActionRunning = true
+                        try {
+                            val ok = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.removeLegacyAfterUpgrade(context) }
+                            status = if (ok) "Old Qwen Stage G weights removed; compact model retained"
+                                else "Could not remove old Qwen weights"
+                        } catch (t: Throwable) { status = "Qwen old-package cleanup failed: ${t.message}" }
+                        finally { npuActionRunning = false }
+                    }
+                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                    Text("Remove old weights")
+                }
+            },
+            dismissButton = { TextButton(onClick = { qwenLegacyDeleteConfirm = false }) { Text("Cancel") } }
+        )
     }
 
     if (npuDeleteConfirm) {

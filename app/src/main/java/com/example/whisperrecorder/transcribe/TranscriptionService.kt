@@ -16,11 +16,13 @@ import com.example.whisperrecorder.data.WorkspaceStorage
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.diagnostics.DiagnosticReports
+import com.example.whisperrecorder.diagnostics.QwenPerformanceMetrics
 import com.example.whisperrecorder.advanced.LocalAsrModelManager
 import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import kotlinx.coroutines.*
 import java.io.File
 import java.util.ArrayDeque
@@ -270,6 +272,7 @@ class TranscriptionService : Service() {
             AsrEngine.WHISPER -> File(request.modelPath).name.removePrefix("ggml-").removeSuffix(".bin")
             AsrEngine.PARAKEET_NPU -> "NVIDIA Parakeet TDT 0.6B v3 · Qualcomm NPU"
             AsrEngine.OMI_NPU -> "Omi Med STT v1 · Qualcomm NPU"
+            AsrEngine.QWEN3_HYBRID -> Qwen3HybridPackageStore.DISPLAY_NAME
             else -> LocalAsrModelManager.byEngine(request.engine)?.name ?: File(request.modelPath).name.removeSuffix(".gguf")
         }
         TranscriptionRuntime.update(
@@ -300,6 +303,9 @@ class TranscriptionService : Service() {
                     require(request.modelPath == NpuPackageStore.TRANSCRIPTION_MODEL_KEY) { "Selected NPU package identity is invalid" }
                     require(NpuPackageStore.archiveState(this@TranscriptionService) == NpuArchiveState.READY) { "Parakeet NPU package is not ready" }
                     NpuPackageStore.runtimeArchiveInfo(this@TranscriptionService)
+                } else if (request.engine == AsrEngine.QWEN3_HYBRID) {
+                    require(request.modelPath == Qwen3HybridPackageStore.MODEL_KEY) { "Selected Qwen hybrid model identity is invalid" }
+                    require(Qwen3HybridPackageStore.state(this@TranscriptionService) == NpuArchiveState.READY) { "Qwen hybrid package is incomplete" }
                 } else if (request.engine == AsrEngine.OMI_NPU) {
                     require(request.modelPath == OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY) { "Selected Omi NPU package identity is invalid" }
                     require(OmiNpuPackageStore.archiveState(this@TranscriptionService) == NpuArchiveState.READY) { "Omi NPU assets are incomplete" }
@@ -347,7 +353,7 @@ class TranscriptionService : Service() {
                     "media stream ready sampleRate=${streamInfo.sampleRate} channels=${streamInfo.channelCount} trackMime=${streamInfo.trackMime} audioStartMs=${streamInfo.audioStartMs} audioDurationMs=$audioDurationMs noFullPcmStaging=true"
                 )
                 updateStage(request.id, "Loading model", "Loading $modelName", modelName, total, totalChunks = totalChunks)
-                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id} path=${if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else request.modelPath} sizeBytes=${if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU) 0L else File(request.modelPath).length()}")
+                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id} path=${if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.QWEN3_HYBRID) Qwen3HybridPackageStore.MODEL_KEY else request.modelPath} sizeBytes=${if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU || request.engine == AsrEngine.QWEN3_HYBRID) 0L else File(request.modelPath).length()}")
                 val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
                 val configuredThreads = AppPrefs.effectiveTranscriptionThreads(this@TranscriptionService, cores)
                 val threads = if (request.engine.supportsConfigurableThreads) configuredThreads else 0
@@ -357,7 +363,7 @@ class TranscriptionService : Service() {
                     whisperEnglishOnly = request.engine == AsrEngine.WHISPER && ModelManager.isEnglishOnly(File(request.modelPath))
                 )
                 val modelLoadStarted = System.currentTimeMillis()
-                val sessionKey = SessionKey(request.engine, if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else File(request.modelPath).canonicalPath, threads)
+                val sessionKey = SessionKey(request.engine, if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.QWEN3_HYBRID) Qwen3HybridPackageStore.MODEL_KEY else File(request.modelPath).canonicalPath, threads)
                 val reusedSession = warmSession != null && warmSessionKey == sessionKey
                 val session = if (reusedSession) {
                     requireNotNull(warmSession)
@@ -412,7 +418,7 @@ class TranscriptionService : Service() {
                             val timedChunk = requireNotNull(currentChunk)
                             decodedEndMs = maxOf(decodedEndMs, timedChunk.endMs)
                             val samples = timedChunk.samples
-                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI) async(Dispatchers.IO) {
+                            val prefetchedNext = if (request.engine == AsrEngine.PARAKEET || request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI || request.engine == AsrEngine.QWEN3_HYBRID) async(Dispatchers.IO) {
                                 val decodeStarted = System.currentTimeMillis()
                                 val next = if (stream.hasNext()) stream.next() else null
                                 val decodeWorkMs = System.currentTimeMillis() - decodeStarted
@@ -571,6 +577,14 @@ class TranscriptionService : Service() {
                         val totalChars = slices.sumOf { it.recognition.text.length }
                         val retryNote = if (slices.size > 1) " adaptiveSlices=${slices.size}" else ""
                         val diagnostics = slices.joinToString(separator = "") { it.recognition.diagnostics }.trim()
+                        if (request.engine == AsrEngine.QWEN3_HYBRID) {
+                            // Same lightweight report pipeline as other backends; counters come
+                            // from the existing isolated Qwen worker and are numeric-only.
+                            for (slice in slices) {
+                                QwenPerformanceMetrics.parse(slice.recognition.diagnostics)
+                                    .forEach { (metric, value) -> diagnosticRun.workerMetric(metric, value, chunk) }
+                            }
+                        }
                         DiagnosticLogger.append(
                             this@TranscriptionService,
                             "inference complete engine=${request.engine.id} chunk=$chunk/$totalChunks elapsedMs=$chunkInferenceMs chars=$totalChars$retryNote${if (diagnostics.isNotBlank()) " $diagnostics" else ""}"
@@ -753,6 +767,20 @@ class TranscriptionService : Service() {
                 }
                 val realtimeFactor = if (total > 0L) wallTimeMs.toDouble() / total.toDouble() else 0.0
                 DiagnosticLogger.append(this@TranscriptionService, "SESSION complete recording=${request.id} audioDurationMs=$total wallTimeMs=$wallTimeMs decodeMs=$decodeElapsedMs modelLoadMs=$modelLoadElapsedMs inferenceMs=$inferenceTotalMs saveMs=$saveElapsedMs realtimeFactor=${"%.3f".format(java.util.Locale.US, realtimeFactor)} chunks=$totalChunks chars=${text.length} untranscribedNpuChunks=$unrecoveredNpuChunks")
+                if (request.engine == AsrEngine.QWEN3_HYBRID) {
+                    // A completed Qwen run must not leave proc-FD bridges, wrappers or transient
+                    // copies on the phone. This also disables warm Qwen reuse between recordings.
+                    val closed = closeWarmSession()
+                    val cleanupVerified = closed && runCatching {
+                        Qwen3HybridPackageStore.clearTemporaryTestFiles(this@TranscriptionService)
+                    }.getOrDefault(false)
+                    diagnosticRun.workerMetric("qwen_cleanup_verified", if (cleanupVerified) 1 else 0, 0)
+                    if (!cleanupVerified) {
+                        diagnosticRun.event("qwen_cleanup_incomplete")
+                        DiagnosticLogger.append(this@TranscriptionService,
+                            "Qwen scratch cleanup INCOMPLETE; use manual cleanup from Models & Downloads")
+                    }
+                }
                 diagnosticRun.event("transcription_complete")
                 diagnosticRun.finish("success", totals = mapOf(
                     "audio_duration_ms" to total, "wall_ms" to wallTimeMs,
@@ -762,7 +790,14 @@ class TranscriptionService : Service() {
                     "untranscribed_npu_segments" to unrecoveredNpuChunks.toLong()
                 ))
             } catch (ce: CancellationException) {
-                closeWarmSession()
+                val closed = closeWarmSession()
+                if (request.engine == AsrEngine.QWEN3_HYBRID) {
+                    val cleaned = closed && runCatching {
+                        Qwen3HybridPackageStore.clearTemporaryTestFiles(this@TranscriptionService)
+                    }.getOrDefault(false)
+                    diagnosticRun.workerMetric("qwen_cleanup_verified", if (cleaned) 1 else 0, 0)
+                    if (!cleaned) diagnosticRun.event("qwen_cleanup_incomplete")
+                }
                 diagnosticRun.event("transcription_cancelled")
                 diagnosticRun.finish("cancelled", "user_or_service_cancellation", ce)
                 DiagnosticLogger.append(this@TranscriptionService, "SESSION cancelled recording=${request.id} message=${ce.message}")
@@ -771,7 +806,14 @@ class TranscriptionService : Service() {
                 )
                 if (synchronized(pending) { pending.isEmpty() }) stopForeground(STOP_FOREGROUND_REMOVE)
             } catch (t: Throwable) {
-                closeWarmSession()
+                val closed = closeWarmSession()
+                if (request.engine == AsrEngine.QWEN3_HYBRID) {
+                    val cleaned = closed && runCatching {
+                        Qwen3HybridPackageStore.clearTemporaryTestFiles(this@TranscriptionService)
+                    }.getOrDefault(false)
+                    diagnosticRun.workerMetric("qwen_cleanup_verified", if (cleaned) 1 else 0, 0)
+                    if (!cleaned) diagnosticRun.event("qwen_cleanup_incomplete")
+                }
                 DiagnosticLogger.appendError(this@TranscriptionService, "SESSION failed recording=${request.id}", t)
                 diagnosticRun.event("transcription_failed")
                 diagnosticRun.finish("failure", TranscriptionRuntime.state.value.stage, t, mapOf(
@@ -818,12 +860,15 @@ class TranscriptionService : Service() {
         }
     }
 
-    private fun closeWarmSession() {
+    private fun closeWarmSession(): Boolean {
         val session = warmSession
         warmSession = null
         warmSessionKey = null
         if (activeSession === session) activeSession = null
-        if (session != null) runCatching { session.close() }
+        if (session == null) return true
+        return runCatching { session.close() }.onFailure { error ->
+            DiagnosticLogger.appendError(this, "ASR session close/cleanup failed", error)
+        }.isSuccess
     }
 
     private data class AudioStats(val peak: Float, val rms: Float, val nonZeroFraction: Double)

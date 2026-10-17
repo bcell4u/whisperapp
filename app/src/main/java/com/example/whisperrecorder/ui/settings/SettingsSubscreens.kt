@@ -28,12 +28,12 @@ import com.example.whisperrecorder.ui.SpeakerCountPicker
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.diagnostics.DiagnosticReports
-import androidx.core.content.FileProvider
 import android.content.Intent
 import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import com.example.whisperrecorder.npu.NpuRuntimeClient
 import com.example.whisperrecorder.ui.AudioFormatCard
 import com.example.whisperrecorder.ui.BackArrowButton
@@ -82,10 +82,11 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val localInstalled = localModel?.let { LocalAsrModelManager.isInstalled(context, it) } == true
     val englishOnly = selectedFile?.let(ModelManager::isEnglishOnly) == true
     val lockedEnglish = engine == "omi" || engine == "omi_npu"
-    val automatic = engine == "qwen3"
+    val automatic = engine == "qwen3" || engine == "qwen3_hybrid"
     val parakeetMultilingual = engine == "parakeet" || engine == "parakeet_npu"
     val npuReady = engine == "parakeet_npu" && NpuPackageStore.archiveState(context) == NpuArchiveState.READY
     val omiNpuReady = engine == "omi_npu" && OmiNpuPackageStore.archiveState(context) == NpuArchiveState.READY
+    val qwenHybridReady = engine == "qwen3_hybrid" && Qwen3HybridPackageStore.state(context) == NpuArchiveState.READY
     var selected by remember(engine, selectedFile?.absolutePath) {
         mutableStateOf(if (englishOnly || lockedEnglish || (parakeetMultilingual && AppPrefs.getTranscriptionLanguage(context) == "auto")) "en" else AppPrefs.getTranscriptionLanguage(context))
     }
@@ -112,6 +113,7 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val modelName = when {
         engine == "parakeet_npu" -> NpuPackageStore.DISPLAY_NAME
         engine == "omi_npu" -> OmiNpuPackageStore.DISPLAY_NAME
+        engine == "qwen3_hybrid" -> Qwen3HybridPackageStore.DISPLAY_NAME
         localModel != null -> localModel.name
         selectedFile != null -> ModelManager.displayName(selectedFile)
         else -> "No model selected"
@@ -119,17 +121,20 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val modelReady = when {
         engine == "parakeet_npu" -> npuReady
         engine == "omi_npu" -> omiNpuReady
+        engine == "qwen3_hybrid" -> qwenHybridReady
         localModel != null -> localInstalled
         else -> selectedFile != null
     }
     val explanation = when {
         !modelReady && engine == "parakeet_npu" -> "The Qualcomm NPU package is incomplete. Repair it in Models & downloads."
         !modelReady && engine == "omi_npu" -> "The Omi Med NPU package is incomplete. Repair it in Models & downloads."
+        !modelReady && engine == "qwen3_hybrid" -> "The Qwen hybrid package is incomplete. Repair it in Models & downloads."
         !modelReady && engine == "parakeet" -> "Parakeet model files are incomplete. Restore or reinstall Parakeet in Models & downloads."
         !modelReady && localModel != null -> "${localModel.name} is incomplete. Restore or reinstall it in Models & downloads."
         engine == "parakeet" || engine == "parakeet_npu" -> "Parakeet TDT 0.6B v3 supports 25 European languages. Select the spoken language for this model."
         engine == "qwen3" -> "Qwen3-ASR 1.7B automatically detects among its supported languages."
         engine == "omi_npu" -> "Omi Med NPU supports English. Review medical terms and doses; encoder numerical qualification is not complete."
+        engine == "qwen3_hybrid" -> "Experimental Qwen 0.6B: 12-second windows, S26 QNN encoder plus CPU decoder. Validate fidelity before critical use."
         engine == "omi" -> "Omi Med STT v1 Q8_0 is an English medical-domain model and automatically uses the shared parakeet.cpp OpenCL/Adreno runtime."
         selectedFile == null -> "Select a Whisper model before choosing a language."
         englishOnly -> "This imported .en Whisper model supports English only."
@@ -547,17 +552,21 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
     }
     var verbose by remember { mutableStateOf(AppPrefs.isVerboseDiagnostics(context)) }
     var status by remember { mutableStateOf("") }
-    var reports by remember { mutableStateOf(DiagnosticReports.list(context)) }
+    var reports by remember { mutableStateOf(emptyList<DiagnosticReports.Report>()) }
+    LaunchedEffect(Unit) {
+        reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
+    }
     var generatingReport by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     var deleteReportName by remember { mutableStateOf<String?>(null) }
-    fun shareReport(report: File) {
+    fun shareReport(report: DiagnosticReports.Report) {
         runCatching {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", report)
+            val uri = DiagnosticReports.shareUri(context, report)
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/zip"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = android.content.ClipData.newUri(context.contentResolver, report.name, uri)
             }
             context.startActivity(Intent.createChooser(send, "Share diagnostic ZIP"))
         }.onFailure { status = "Unable to share report: ${it::class.java.simpleName}" }
@@ -567,10 +576,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         title = { Text("Delete all diagnostic ZIPs?") },
         text = { Text("Only saved diagnostic reports will be deleted. Models, recordings, transcripts, and the live log are unaffected.") },
         confirmButton = { TextButton(onClick = {
-            val count = DiagnosticReports.deleteAll(context)
-            reports = DiagnosticReports.list(context)
             confirmDeleteAll = false
-            status = "$count diagnostic reports deleted"
+            scope.launch {
+                val count = withContext(Dispatchers.IO) { DiagnosticReports.deleteAll(context) }
+                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
+                status = "$count diagnostic reports deleted"
+            }
         }) { Text("Delete reports") } },
         dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } }
     )
@@ -579,9 +590,12 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
         title = { Text("Delete this report?") },
         text = { Text(name) },
         confirmButton = { TextButton(onClick = {
-            status = if (DiagnosticReports.delete(context, name)) "Diagnostic report deleted" else "Report no longer exists"
-            reports = DiagnosticReports.list(context)
             deleteReportName = null
+            scope.launch {
+                val deleted = withContext(Dispatchers.IO) { DiagnosticReports.delete(context, name) }
+                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
+                status = if (deleted) "Diagnostic report deleted" else "Report could not be deleted"
+            }
         }) { Text("Delete") } },
         dismissButton = { TextButton(onClick = { deleteReportName = null }) { Text("Cancel") } }
     ) }
@@ -688,7 +702,7 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Automatic diagnostic ZIPs", style = MaterialTheme.typography.titleMedium)
-                    Text("A private, sanitized ZIP is created after each transcription (success, failure, or cancellation). It contains bounded timing events, device/thermal/memory snapshots, and error stack symbols. No recordings, transcripts, token IDs, model weights, or personal file paths are included.",
+                    Text("A sanitized ZIP is saved to your selected Whisperapp/Logs folder after each transcription (success, failure, or cancellation). If the folder is unavailable, the ZIP is retained privately. No recordings, transcripts, token IDs, model weights, or personal file paths are included.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(enabled = !generatingReport, onClick = {
@@ -698,18 +712,21 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                                     DiagnosticReports.manualSnapshot(context)
                                 }
                                 status = if (created != null) "Diagnostic ZIP created" else "Could not generate diagnostic ZIP"
-                                reports = DiagnosticReports.list(context)
+                                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
                                 generatingReport = false
                             }
                         }) { Text(if (generatingReport) "Creating..." else "Create ZIP now") }
-                        OutlinedButton(onClick = { reports = DiagnosticReports.list(context) }) { Text("Refresh ZIPs") }
+                        OutlinedButton(onClick = {
+                            scope.launch { reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) } }
+                        }) { Text("Refresh ZIPs") }
                     }
+                    Text(DiagnosticReports.storageDescription(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${reports.size} saved reports. Older reports are automatically pruned to at most 8 files / 32 MB.",
                         style = MaterialTheme.typography.bodySmall)
                     reports.take(8).forEach { report ->
                         HorizontalDivider()
                         Text(report.name, style = MaterialTheme.typography.bodySmall)
-                        Text("${report.length() / 1024} KiB", style = MaterialTheme.typography.bodySmall,
+                        Text("${report.sizeBytes / 1024} KiB · ${if (report.location == DiagnosticReports.Location.WORKSPACE_LOGS) "Whisperapp/Logs" else "Private fallback"}", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { shareReport(report) }) { Text("Share ZIP") }

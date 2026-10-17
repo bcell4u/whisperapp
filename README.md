@@ -1,6 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.34**, Android `versionCode=65034`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.36**, Android `versionCode=65036`. See [RELEASE-v6.5.36.md](RELEASE-v6.5.36.md) for the experimental Qwen hybrid and validation gates. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -120,3 +120,13 @@ Full Android CI compilation and Galaxy S26 regression tests are still required.
 existing v6.5.32 Qwen-hybrid installation yet. The experimental 0.6B backend is
 intentionally absent in this phase. Use the `.dev` debug variant for isolated tests,
 or wait until the hybrid is reinstated and validated.
+
+## v6.5.35 — Diagnostic ZIP output in shared Logs directory
+
+Diagnostic ZIPs now publish to the existing user-selected `Whisperapp/Logs` folder.
+Reports are first completed privately, then copied and SHA-256 verified before the
+private staging copy is discarded. SAF errors retain the ZIP as a private fallback.
+Existing private reports remain visible in Settings > Diagnostics and can still be
+shared/deleted. Debug and release ZIP naming is isolated to avoid cross-app pruning
+of shared Logs. Other existing text/error logs and model folders remain unchanged.
+This development baseline still excludes the experimental Qwen 0.6B hybrid.

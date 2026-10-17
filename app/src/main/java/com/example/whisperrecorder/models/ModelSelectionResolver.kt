@@ -6,6 +6,7 @@ import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
+import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import java.io.File
 
 /** Shared resolution of the currently usable model path for UI and service launch code. */
@@ -16,6 +17,8 @@ object ModelSelectionResolver {
             NpuPackageStore.TRANSCRIPTION_MODEL_KEY.takeIf { NpuPackageStore.archiveState(context) == NpuArchiveState.READY }
         } else if (engine == "omi_npu") {
             OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY.takeIf { OmiNpuPackageStore.archiveState(context) == NpuArchiveState.READY }
+        } else if (engine == "qwen3_hybrid") {
+            Qwen3HybridPackageStore.MODEL_KEY.takeIf { Qwen3HybridPackageStore.state(context) == NpuArchiveState.READY }
         } else if (engine in LocalAsrModelManager.engineIds) {
             LocalAsrModelManager.byEngine(engine)
                 ?.takeIf { LocalAsrModelManager.isInstalled(context, it) }
