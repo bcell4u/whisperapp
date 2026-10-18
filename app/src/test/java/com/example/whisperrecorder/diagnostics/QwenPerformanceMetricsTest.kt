@@ -19,4 +19,17 @@ class QwenPerformanceMetricsTest {
         val m = QwenPerformanceMetrics.parse("decoderSteps=-4 prefillMs=not_a_number thermalEnd=5 userFile=/home/name prompt=secret")
         assertEquals(mapOf("thermal_end" to 5L), m)
     }
+    @Test fun acceptsNewFirstStepAndMemoryCountersWithoutImportingPrivateValues() {
+        val metrics = QwenPerformanceMetrics.parse(
+            "firstStepMs=1551 slowStepsOver250Ms=2 pssBeforeDecoderKb=12345 " +
+                "pssAfterInitKb=900000 pssAfterStepKb=1900000 prefillPssKb=2100000 " +
+                "reusableStepInputsActive=1 transcript=PRIVATE path=/data/user/0/file"
+        )
+        assertEquals(1551L, metrics["decoder_first_step_ms"])
+        assertEquals(2L, metrics["decoder_slow_steps_over_250ms"])
+        assertEquals(1900000L, metrics["decoder_pss_after_step_kb"])
+        assertEquals(1L, metrics["decoder_reusable_step_inputs"])
+        assertEquals(7, metrics.size)
+    }
+
 }

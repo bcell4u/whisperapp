@@ -50,6 +50,7 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                     append(" decoderAvgStepMs=${response.optDouble("decoder_avg_step_ms", 0.0)}")
                     append(" fastThermalGuard=${response.optBoolean("fast_mode_thermal_guard")}")
                     append(" fp16EmbeddingActive=${response.optBoolean("embedding_fp16_active")}")
+                    append(" reusableStepInputs=${response.optInt("decoder_reusable_step_inputs", 0) == 1}")
                     for ((label, field) in listOf(
                         "preprocessMs" to "preprocess_ms", "encoderMs" to "encoder_ms",
                         "decoderLoadMs" to "decoder_load_ms", "decoderMs" to "decoder_ms",
@@ -59,6 +60,13 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                         "stepP50Ms" to "decoder_step_p50_ms",
                         "stepP95Ms" to "decoder_step_p95_ms",
                         "stepMaxMs" to "decoder_step_max_ms",
+                        "firstStepMs" to "decoder_first_step_ms",
+                        "slowStepsOver250Ms" to "decoder_slow_steps_over_250ms",
+                        "prefillPssKb" to "decoder_prefill_pss_kb",
+                        "pssBeforeDecoderKb" to "decoder_pss_before_load_kb",
+                        "pssAfterInitKb" to "decoder_pss_after_init_kb",
+                        "pssAfterStepKb" to "decoder_pss_after_step_kb",
+                        "reusableStepInputsActive" to "decoder_reusable_step_inputs",
                         "kvPayloadBytesMax" to "decoder_kv_payload_bytes_max",
                         "decoderThreads" to "decoder_intra_threads",
                         "encoderGraphCalls" to "encoder_graph_calls",

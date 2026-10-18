@@ -51,4 +51,42 @@ class QwenEmbeddingReaderTest {
             }
         } finally { sample.delete() }
     }
+    @Test fun reusableScratchReaderMatchesOriginalForFp32AndFp16() {
+        for (fp16 in listOf(false, true)) {
+            val sample = File.createTempFile("qwen-row-compare", ".bin")
+            try {
+                val values = listOf(0.0f, -0.0f, 1.0f, -2.0f, 0.5f)
+                RandomAccessFile(sample, "rw").use { f ->
+                    val row = ByteBuffer.allocate(QwenEmbeddingReader.WIDTH * (if (fp16) 2 else 4))
+                        .order(ByteOrder.LITTLE_ENDIAN)
+                    repeat(QwenEmbeddingReader.WIDTH) { i ->
+                        val value = values[i % values.size]
+                        if (fp16) {
+                            val bits = when (value) {
+                                0f -> if (value.toRawBits() < 0) 0x8000 else 0x0000
+                                1f -> 0x3c00
+                                -2f -> 0xc000
+                                else -> 0x3800
+                            }
+                            row.putShort(bits.toShort())
+                        } else row.putFloat(value)
+                    }
+                    f.write(row.array())
+                }
+                RandomAccessFile(sample, "r").use { f ->
+                    val original = QwenEmbeddingReader.readRow(f, 0, fp16)
+                    val reused = FloatArray(QwenEmbeddingReader.WIDTH)
+                    val scratch = ByteArray(QwenEmbeddingReader.WIDTH * 4)
+                    QwenEmbeddingReader.readRowInto(f, 0, fp16, reused, scratch)
+                    for (i in original.indices) {
+                        assertEquals(original[i].toRawBits(), reused[i].toRawBits())
+                    }
+                    // Run again with the same scratch: there must be no offset drift.
+                    QwenEmbeddingReader.readRowInto(f, 0, fp16, reused, scratch)
+                    assertArrayEquals(original, reused, 0f)
+                }
+            } finally { sample.delete() }
+        }
+    }
+
 }

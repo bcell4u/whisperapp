@@ -16,7 +16,14 @@ internal object QwenPerformanceMetrics {
         "kvPayloadBytesMax" to "decoder_kv_payload_bytes_max",
         "stepP50Ms" to "decoder_step_p50_ms",
         "stepP95Ms" to "decoder_step_p95_ms",
-        "stepMaxMs" to "decoder_step_max_ms"
+        "stepMaxMs" to "decoder_step_max_ms",
+        "firstStepMs" to "decoder_first_step_ms",
+        "slowStepsOver250Ms" to "decoder_slow_steps_over_250ms",
+        "prefillPssKb" to "decoder_prefill_pss_kb",
+        "pssBeforeDecoderKb" to "decoder_pss_before_load_kb",
+        "pssAfterInitKb" to "decoder_pss_after_init_kb",
+        "pssAfterStepKb" to "decoder_pss_after_step_kb",
+        "reusableStepInputsActive" to "decoder_reusable_step_inputs"
     )
 
     fun parse(source: String): Map<String, Long> {

@@ -1,6 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.37**, Android `versionCode=65037`. See [RELEASE-v6.5.37.md](RELEASE-v6.5.37.md) for the APK-audit hotfix and continued experimental Qwen qualification. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.38**, Android `versionCode=65038`. See [RELEASE-v6.5.38.md](RELEASE-v6.5.38.md) for experimental Qwen decoder-step reuse and memory profiling. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 

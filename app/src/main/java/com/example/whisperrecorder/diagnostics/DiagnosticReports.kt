@@ -216,6 +216,10 @@ object DiagnosticReports {
                     "worker_wall_ms", "worker_pss_kb", "thermal_start", "thermal_end",
                     "encoder_graph_calls", "decoder_npu_graph_calls", "decoder_kv_payload_bytes_max",
                     "decoder_step_p50_ms", "decoder_step_p95_ms", "decoder_step_max_ms",
+                    "decoder_first_step_ms", "decoder_slow_steps_over_250ms",
+                    "decoder_prefill_pss_kb", "decoder_pss_before_load_kb",
+                    "decoder_pss_after_init_kb", "decoder_pss_after_step_kb",
+                    "decoder_reusable_step_inputs",
                     "qwen_cleanup_verified")) return
             workerMetrics.add(JSONObject().put("name", name).put("value", value.coerceAtLeast(0))
                 .put("segment_index", segmentIndex.coerceAtLeast(0)))

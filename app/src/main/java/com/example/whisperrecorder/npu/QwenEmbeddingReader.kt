@@ -32,6 +32,38 @@ internal object QwenEmbeddingReader {
         return Float.fromBits(floatBits)
     }
 
+    /** Decode one row without per-token ByteArray/FloatArray/ByteBuffer allocations.
+     * This performs the same little-endian conversion as readRow(). The caller owns
+     * the scratch buffers and must not share them concurrently between workers.
+     */
+    fun readRowInto(
+        file: RandomAccessFile, token: Int, fp16: Boolean,
+        destination: FloatArray, scratch: ByteArray
+    ) {
+        require(token in 0 until VOCAB)
+        require(destination.size == WIDTH)
+        val rowBytes = WIDTH * if (fp16) 2 else 4
+        require(scratch.size >= rowBytes)
+        file.seek(token.toLong() * rowBytes)
+        file.readFully(scratch, 0, rowBytes)
+        if (fp16) {
+            for (i in 0 until WIDTH) {
+                val index = i * 2
+                destination[i] = halfToFloat((scratch[index].toInt() and 255) or
+                    ((scratch[index + 1].toInt() and 255) shl 8))
+            }
+        } else {
+            for (i in 0 until WIDTH) {
+                val index = i * 4
+                val bits = (scratch[index].toInt() and 255) or
+                    ((scratch[index + 1].toInt() and 255) shl 8) or
+                    ((scratch[index + 2].toInt() and 255) shl 16) or
+                    ((scratch[index + 3].toInt() and 255) shl 24)
+                destination[i] = Float.fromBits(bits)
+            }
+        }
+    }
+
     fun readRow(file: RandomAccessFile, token: Int, fp16: Boolean): FloatArray {
         require(token in 0 until VOCAB)
         val bytesPerElement = if (fp16) 2 else 4
