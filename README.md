@@ -1,6 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.42**, Android `versionCode=65042`. See [RELEASE-v6.5.42.md](RELEASE-v6.5.42.md) for the JVM JSON test-runtime fix; [RELEASE-v6.5.41.md](RELEASE-v6.5.41.md) documents the diagnostics-screen Kotlin compile fix, and [RELEASE-v6.5.40.md](RELEASE-v6.5.40.md) documents the retired Omi probe cleanup. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.43**, Android `versionCode=65043`. See [RELEASE-v6.5.43.md](RELEASE-v6.5.43.md) for the weight-prepacking and KV-cache memory experiment; [RELEASE-v6.5.42.md](RELEASE-v6.5.42.md) documents the JVM JSON test fix; [RELEASE-v6.5.41.md](RELEASE-v6.5.41.md) documents the diagnostics-screen Kotlin compile fix, and [RELEASE-v6.5.40.md](RELEASE-v6.5.40.md) documents the retired Omi probe cleanup. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 

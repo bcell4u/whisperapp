@@ -12,6 +12,10 @@ reports=(base/'diagnostics/DiagnosticReports.kt').read_text()
 assert 'String prepare(String configJson)' in aidl
 assert 'QwenDecoderRunConfig.fromJson(configJson)' in worker
 assert 'config.cpuArenaDisabled' in worker and 'setCPUArenaAllocator(false)' in worker
+assert 'config.prepackingDisabled' in worker and 'addConfigEntry("session.disable_prepacking", "1")' in worker
+assert 'decoder_kv_logical_input_bytes_sum' in reports
+assert 'QwenKvCacheTelemetry' in worker
+assert 'Qwen weight prepacking: OFF (experimental)' in menu
 assert 'QwenDecoderPerformancePolicy.' not in worker
 assert 'client.prepare(config)' in session and 'failed to acknowledge' in session
 assert 'QwenDecoderPerformancePolicy.snapshot(app)' in client

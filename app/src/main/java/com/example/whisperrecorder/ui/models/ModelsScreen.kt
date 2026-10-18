@@ -73,6 +73,7 @@ internal fun ModelsScreen(
     var qwenAdvancedExpanded by remember { mutableStateOf(false) }
     var qwenFastDecoder by remember { mutableStateOf(QwenDecoderPerformancePolicy.fast(context)) }
     var qwenCpuArenaDisabled by remember { mutableStateOf(QwenDecoderPerformancePolicy.cpuArenaDisabled(context)) }
+    var qwenPrepackingDisabled by remember { mutableStateOf(QwenDecoderPerformancePolicy.prepackingDisabled(context)) }
     var qwenFp16EmbeddingTrial by remember { mutableStateOf(QwenDecoderPerformancePolicy.useFp16EmbeddingTrial(context)) }
     var npuDeleteConfirm by remember { mutableStateOf(false) }
     var omiDeleteConfirm by remember { mutableStateOf(false) }
@@ -394,21 +395,32 @@ internal fun ModelsScreen(
                     }, enabled = !transcriptionState.active && !npuActionRunning) {
                         Text(if (qwenFastDecoder) "Qwen CPU decoder: 4 threads (speed test)" else "Qwen CPU decoder: 2 threads (balanced) — tap to test 4")
                     }
-                    OutlinedButton(onClick = {
-                        qwenCpuArenaDisabled = !qwenCpuArenaDisabled
-                        QwenDecoderPerformancePolicy.setCpuArenaDisabled(context, qwenCpuArenaDisabled)
-                        status = if (qwenCpuArenaDisabled)
-                            "Qwen memory trial: CPU arena disabled on NEXT transcription. Compare PSS, timing and output; revert if slower."
-                        else "Qwen standard ONNX Runtime CPU arena enabled for NEXT transcription."
-                    }, enabled = !transcriptionState.active && !npuActionRunning) {
-                        Text(if (qwenCpuArenaDisabled)
-                            "Qwen CPU arena: OFF (experimental memory test)"
-                            else "Qwen CPU arena: ON (baseline)")
-                    }
                     TextButton(onClick = { qwenAdvancedExpanded = !qwenAdvancedExpanded }) {
                         Text(if (qwenAdvancedExpanded) "Hide Qwen advanced diagnostics & maintenance" else "Qwen advanced diagnostics & maintenance")
                     }
                     if (qwenAdvancedExpanded) {
+                        OutlinedButton(onClick = {
+                            qwenPrepackingDisabled = !qwenPrepackingDisabled
+                            QwenDecoderPerformancePolicy.setPrepackingDisabled(context, qwenPrepackingDisabled)
+                            status = if (qwenPrepackingDisabled)
+                                "Qwen weight prepacking disabled for NEXT transcription. Compare memory and token speed; may be slower."
+                            else "Qwen normal decoder prepacking restored for NEXT transcription."
+                        }, enabled = !transcriptionState.active && !npuActionRunning) {
+                            Text(if (qwenPrepackingDisabled)
+                                "Qwen weight prepacking: OFF (experimental)"
+                                else "Qwen weight prepacking: ON (baseline)")
+                        }
+                        OutlinedButton(onClick = {
+                            qwenCpuArenaDisabled = !qwenCpuArenaDisabled
+                            QwenDecoderPerformancePolicy.setCpuArenaDisabled(context, qwenCpuArenaDisabled)
+                            status = if (qwenCpuArenaDisabled)
+                                "Qwen memory trial: CPU arena disabled on NEXT transcription. Compare PSS, timing and output; revert if slower."
+                            else "Qwen standard ONNX Runtime CPU arena enabled for NEXT transcription."
+                        }, enabled = !transcriptionState.active && !npuActionRunning) {
+                            Text(if (qwenCpuArenaDisabled)
+                                "Qwen CPU arena: OFF (experimental memory test)"
+                                else "Qwen CPU arena: ON (baseline)")
+                        }
                         OutlinedButton(onClick = {
                             qwenFp16EmbeddingTrial = !qwenFp16EmbeddingTrial
                             QwenDecoderPerformancePolicy.setFp16EmbeddingTrial(context, qwenFp16EmbeddingTrial)

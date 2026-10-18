@@ -6,6 +6,7 @@ import android.system.OsConstants
 import com.example.whisperrecorder.qwen.Qwen3HybridClient
 import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
+import com.example.whisperrecorder.npu.QwenDecoderRunConfig
 import org.json.JSONObject
 import java.nio.ByteOrder
 
@@ -22,10 +23,11 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
             require(outcome.optBoolean("ok")) {
                 "Qwen hybrid initialization failed: ${outcome.optString("error")}. This does not affect existing backends."
             }
-            require(outcome.optInt("config_schema", -1) == 1 &&
+            require(outcome.optInt("config_schema", -1) == QwenDecoderRunConfig.SCHEMA &&
                 outcome.optInt("decoder_threads", -1) == config.threads &&
                 outcome.optBoolean("fp16_embedding_requested") == config.fp16EmbeddingTrial &&
                 outcome.optBoolean("cpu_arena_disabled") == config.cpuArenaDisabled &&
+                outcome.optBoolean("prepacking_disabled") == config.prepackingDisabled &&
                 !outcome.optBoolean("reusable_step_inputs", true)) {
                 "Qwen worker failed to acknowledge requested decoder configuration"
             }
@@ -48,6 +50,7 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
             }
             require(response.optInt("decoder_intra_threads", -1) == config.threads &&
                 response.optBoolean("decoder_cpu_arena_disabled") == config.cpuArenaDisabled &&
+                response.optBoolean("decoder_prepacking_disabled") == config.prepackingDisabled &&
                 response.optBoolean("embedding_fp16_active") == config.fp16EmbeddingTrial) {
                 "Qwen decoder applied configuration differs from the main-process request"
             }
@@ -72,6 +75,7 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                     append(" configAck=true requestedThreads=${config.threads}")
                     append(" requestedCpuArenaDisabled=${config.cpuArenaDisabled}")
                     append(" cpuArenaDisabledActive=${if (response.optBoolean("decoder_cpu_arena_disabled")) 1 else 0}")
+                    append(" prepackingDisabledActive=${if (response.optBoolean("decoder_prepacking_disabled")) 1 else 0}")
                     for ((label, field) in listOf(
                         "preprocessMs" to "preprocess_ms", "encoderMs" to "encoder_ms",
                         "decoderLoadMs" to "decoder_load_ms", "decoderMs" to "decoder_ms",
@@ -105,6 +109,12 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                         "stepDalvikPssKb" to "decoder_step_dalvik_pss_kb",
                         "stepPrivateDirtyKb" to "decoder_step_private_dirty_kb",
                         "kvPayloadBytesMax" to "decoder_kv_payload_bytes_max",
+                        "kvFirstBytes" to "decoder_kv_payload_bytes_first",
+                        "kvLastBytes" to "decoder_kv_payload_bytes_last",
+                        "kvLogicalBytesSum" to "decoder_kv_logical_input_bytes_sum",
+                        "kvSamples" to "decoder_kv_input_samples",
+                        "kvGrowthSteps" to "decoder_kv_growth_steps",
+                        "kvShrinkSteps" to "decoder_kv_shrink_steps",
                         "decoderThreads" to "decoder_intra_threads",
                         "encoderGraphCalls" to "encoder_graph_calls",
                         "decoderNpuGraphCalls" to "decoder_npu_graph_calls",

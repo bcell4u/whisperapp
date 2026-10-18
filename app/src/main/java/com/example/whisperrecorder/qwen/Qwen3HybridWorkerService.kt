@@ -50,6 +50,7 @@ class Qwen3HybridWorkerService : Service() {
                     .put("decoder_threads", requested.threads)
                     .put("fp16_embedding_requested", requested.fp16EmbeddingTrial)
                     .put("cpu_arena_disabled", requested.cpuArenaDisabled)
+                    .put("prepacking_disabled", requested.prepackingDisabled)
                     .put("reusable_step_inputs", false)
             } catch (t: Throwable) { closeSession(); throw t }
         }
@@ -84,7 +85,9 @@ class Qwen3HybridWorkerService : Service() {
         val steps: Int, val embeddingMs: Long, val argmaxMs: Long,
         val stepLatencies: List<Long>, val kvPayloadBytesMax: Long,
         val firstStepMs: Long, val slowStepsOver250Ms: Int,
-        val prefillPssKb: Int
+        val prefillPssKb: Int,
+        val kvFirstBytes: Long, val kvLastBytes: Long, val kvLogicalBytesSum: Long,
+        val kvSamples: Int, val kvGrowthSteps: Int, val kvShrinkSteps: Int
     )
 
     private data class MemorySnapshot(val pssKb: Int, val nativeKb: Int,
@@ -242,6 +245,9 @@ class Qwen3HybridWorkerService : Service() {
                 addConfigEntry("session.inter_op.allow_spinning", "0")
                 // Reversible memory-vs-latency experiment; does not share model weights.
                 if (config.cpuArenaDisabled) setCPUArenaAllocator(false)
+                // ORT 1.27 documented setting. Default is unchanged. Disabling CPU
+                // prepacking may reduce resident model buffers but can slow GEMMs.
+                if (config.prepackingDisabled) addConfigEntry("session.disable_prepacking", "1")
             }
             val initOpts = cpuOptions()
             val stepOpts = cpuOptions()
@@ -365,9 +371,16 @@ class Qwen3HybridWorkerService : Service() {
                 .put("decoder_step_dalvik_pss_kb", afterStep.dalvikKb)
                 .put("decoder_step_private_dirty_kb", afterStep.privateDirtyKb)
                 .put("decoder_cpu_arena_disabled", config.cpuArenaDisabled)
+                .put("decoder_prepacking_disabled", config.prepackingDisabled)
                 .put("decoder_config_schema", QwenDecoderRunConfig.SCHEMA)
                 .put("decoder_reusable_step_inputs", 0)
                 .put("decoder_kv_payload_bytes_max", decodeStats.kvPayloadBytesMax)
+                .put("decoder_kv_payload_bytes_first", decodeStats.kvFirstBytes)
+                .put("decoder_kv_payload_bytes_last", decodeStats.kvLastBytes)
+                .put("decoder_kv_logical_input_bytes_sum", decodeStats.kvLogicalBytesSum)
+                .put("decoder_kv_input_samples", decodeStats.kvSamples)
+                .put("decoder_kv_growth_steps", decodeStats.kvGrowthSteps)
+                .put("decoder_kv_shrink_steps", decodeStats.kvShrinkSteps)
                 .put("fast_mode_thermal_guard", thermalGuardTriggered)
                 .put("decoder_embedding_io_ms", decodeStats.embeddingMs)
                 .put("decoder_argmax_ms", decodeStats.argmaxMs)
@@ -410,6 +423,7 @@ class Qwen3HybridWorkerService : Service() {
             var argmaxMs = 0L
             var steps = 0
             var kvPayloadBytesMax = 0L
+            val kvTelemetry = QwenKvCacheTelemetry()
             val stepLatencies = ArrayList<Long>(255)
             var prefillPssKb = -1
             var firstStepMs = 0L
@@ -436,7 +450,9 @@ class Qwen3HybridWorkerService : Service() {
                 for (step in 0 until 255) {
                     if (token == 151643 || token == 151645) return DecodeStats(
                         outputs, prefillMs, stepMs, steps, embeddingMs, argmaxMs, stepLatencies,
-                        kvPayloadBytesMax, firstStepMs, slowStepsOver250Ms, prefillPssKb
+                        kvPayloadBytesMax, firstStepMs, slowStepsOver250Ms, prefillPssKb,
+                        kvTelemetry.firstBytes, kvTelemetry.lastBytes, kvTelemetry.logicalBytesSum,
+                        kvTelemetry.samples, kvTelemetry.growthSteps, kvTelemetry.shrinkSteps
                     )
                     if (cancelRequested) throw CancellationException("Qwen token generation cancelled")
                     val embeddingStart = SystemClock.elapsedRealtime()
@@ -449,7 +465,9 @@ class Qwen3HybridWorkerService : Service() {
                     fun tensorBytes(tensor: OnnxTensor): Long = tensor.info.shape.fold(4L) { bytes, dim ->
                         if (dim <= 0L || bytes > Long.MAX_VALUE / dim) 0L else bytes * dim
                     }
-                    kvPayloadBytesMax = maxOf(kvPayloadBytesMax, tensorBytes(keys) + tensorBytes(values))
+                    val kvBytes = tensorBytes(keys) + tensorBytes(values)
+                    kvTelemetry.observe(kvBytes)
+                    kvPayloadBytesMax = maxOf(kvPayloadBytesMax, kvBytes)
                     val stepStart = SystemClock.elapsedRealtime()
                     val next = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputEmbedding), longArrayOf(1,1,1024)).use { embeds ->
                         OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(prompt.size + step.toLong())), longArrayOf(1,1)).use { pos ->

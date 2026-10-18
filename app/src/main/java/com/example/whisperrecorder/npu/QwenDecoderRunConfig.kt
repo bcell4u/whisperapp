@@ -8,7 +8,8 @@ import org.json.JSONObject
 internal data class QwenDecoderRunConfig(
     val threads: Int,
     val fp16EmbeddingTrial: Boolean,
-    val cpuArenaDisabled: Boolean
+    val cpuArenaDisabled: Boolean,
+    val prepackingDisabled: Boolean
 ) {
     init { require(threads == 2 || threads == 4) { "Qwen decoder thread count must be 2 or 4" } }
     fun toJson(): String = JSONObject()
@@ -16,19 +17,21 @@ internal data class QwenDecoderRunConfig(
         .put("threads", threads)
         .put("fp16_embedding_trial", fp16EmbeddingTrial)
         .put("cpu_arena_disabled", cpuArenaDisabled)
+        .put("prepacking_disabled", prepackingDisabled)
         .toString()
 
     companion object {
-        const val SCHEMA = 1
+        const val SCHEMA = 2
         fun fromJson(raw: String): QwenDecoderRunConfig {
             require(raw.length in 2..512) { "Qwen config payload length invalid" }
             val doc = JSONObject(raw)
             require(doc.getInt("schema") == SCHEMA) { "Unsupported Qwen config schema" }
-            for (key in listOf("fp16_embedding_trial", "cpu_arena_disabled")) {
+            for (key in listOf("fp16_embedding_trial", "cpu_arena_disabled", "prepacking_disabled")) {
                 require(doc.get(key) is Boolean) { "Qwen config $key must be Boolean" }
             }
             return QwenDecoderRunConfig(doc.getInt("threads"),
-                doc.getBoolean("fp16_embedding_trial"), doc.getBoolean("cpu_arena_disabled"))
+                doc.getBoolean("fp16_embedding_trial"), doc.getBoolean("cpu_arena_disabled"),
+                doc.getBoolean("prepacking_disabled"))
         }
     }
 }
