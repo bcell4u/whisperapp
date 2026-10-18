@@ -21,4 +21,8 @@ assert 'Omi Med NPU' in models
 assert not (root/'app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt').exists()
 assert not (root/'app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt').exists()
 assert 'DiagnosticReports' in ui and 'Automatic diagnostic ZIPs' in ui
+# The transcription-log preview is independent from the removed Omi probe.
+assert 'var preview by remember { mutableStateOf(DiagnosticLogger.readTail(context, 12_000)) }' in ui, 'diagnostics log preview state missing'
+assert 'preview = DiagnosticLogger.readTail(context, 12_000)' in ui, 'diagnostics refresh lost'
+assert 'if (preview.isNotBlank())' in ui, 'diagnostics preview rendering lost'
 print('Retired controls removed; Omi production inference and ZIP diagnostics retained')

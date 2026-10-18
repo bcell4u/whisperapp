@@ -505,6 +505,8 @@ internal fun EffectModeCard(title: String, selected: String, supported: Boolean,
 internal fun DiagnosticsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // This state belongs to the general transcription-log preview, not to the retired Omi probe.
+    var preview by remember { mutableStateOf(DiagnosticLogger.readTail(context, 12_000)) }
     var verbose by remember { mutableStateOf(AppPrefs.isVerboseDiagnostics(context)) }
     var status by remember { mutableStateOf("") }
     var reports by remember { mutableStateOf(emptyList<DiagnosticReports.Report>()) }
