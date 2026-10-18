@@ -1,8 +1,12 @@
 # Self-contained: copy THIS ONE FILE to .github/workflows in any GitHub repo.
 # It does not require checking Builder sources into the repository.
-name: Qwen native bridge probe (one-time Android build)
+name: Qwen bridge probe - native ARM64 only (no APK)
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/qwen-native-bridge-probe.yml"
 permissions:
   contents: read
 jobs:

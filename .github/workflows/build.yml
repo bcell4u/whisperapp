@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+    # A probe-only update builds the probe, not the entire APK.
+    paths-ignore:
+      - ".github/workflows/qwen-native-bridge-probe.yml"
+      - ".github/workflows/build.yml"
   pull_request:
 
 permissions:
