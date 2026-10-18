@@ -26,12 +26,10 @@ checks = {
         'localState(fp16Folder(context), 3)' in src and
         'localState(compactFolder(context), 2)' in src and
         'localState(legacyFolder(context), 1)' in src,
-    'older v2 deletion requires full v3 validation':
-        'fun removeCompactAfterFp16(context: Context)' in src and
-        'require(verifiedFolder(context) == fp16Folder(context))' in src and
-        'qwenCompactDeleteConfirm' in model,
-    'previous large v1 deletion still confirmed':
-        'qwenLegacyDeleteConfirm' in model and 'removeLegacyAfterUpgrade' in src,
+    'retired v2 deletion is absent, while compact detection remains':
+        'fun removeCompactAfterFp16(context: Context)' not in src and 'compactFolder(context)' in src,
+    'retired v1 deletion is absent, while legacy detection remains':
+        'fun removeLegacyAfterUpgrade(context: Context)' not in src and 'legacyFolder(context)' in src,
     'encoder CPU fallback blocked': 'session.disable_cpu_ep_fallback' in runner,
     'Qwen external EPContext path is relative':
         'NpuEpContextModel.write(contract, File(modelDir, "encoder-qnn-fp16.bin"), encoderWrapper, "2.50")' in runner

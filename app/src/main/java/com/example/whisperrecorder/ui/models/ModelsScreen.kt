@@ -69,9 +69,8 @@ internal fun ModelsScreen(
     var qwenVisibleSaved by remember { mutableStateOf(false) }
     var qwenStateChecking by remember { mutableStateOf(true) }
     var qwenDeleteConfirm by remember { mutableStateOf(false) }
-    var qwenLegacyDeleteConfirm by remember { mutableStateOf(false) }
-    var qwenCompactDeleteConfirm by remember { mutableStateOf(false) }
     var qwenReclaimConfirm by remember { mutableStateOf(false) }
+    var qwenAdvancedExpanded by remember { mutableStateOf(false) }
     var qwenFastDecoder by remember { mutableStateOf(QwenDecoderPerformancePolicy.fast(context)) }
     var qwenCpuArenaDisabled by remember { mutableStateOf(QwenDecoderPerformancePolicy.cpuArenaDisabled(context)) }
     var qwenFp16EmbeddingTrial by remember { mutableStateOf(QwenDecoderPerformancePolicy.useFp16EmbeddingTrial(context)) }
@@ -406,54 +405,44 @@ internal fun ModelsScreen(
                             "Qwen CPU arena: OFF (experimental memory test)"
                             else "Qwen CPU arena: ON (baseline)")
                     }
-                    OutlinedButton(onClick = {
-                        qwenFp16EmbeddingTrial = !qwenFp16EmbeddingTrial
-                        QwenDecoderPerformancePolicy.setFp16EmbeddingTrial(context, qwenFp16EmbeddingTrial)
-                        status = if (qwenFp16EmbeddingTrial)
-                            "K2A FP16 trial selected. Only exact SHA-256 verified companion files will load; baseline weights remain preserved."
-                        else "K2A trial disabled; original verified FP32 embeddings used."
-                    }, enabled = !transcriptionState.active && !npuActionRunning) {
-                        Text(if (qwenFp16EmbeddingTrial)
-                            "K2A FP16 embeddings: experimental ON (tap for baseline)"
-                            else "K2A FP16 embeddings: OFF (optional parity trial)")
+                    TextButton(onClick = { qwenAdvancedExpanded = !qwenAdvancedExpanded }) {
+                        Text(if (qwenAdvancedExpanded) "Hide Qwen advanced diagnostics & maintenance" else "Qwen advanced diagnostics & maintenance")
                     }
-                    if (qwenVisibleSaved) {
-                        OutlinedButton(onClick = { qwenReclaimConfirm = true },
-                            enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                            Text("Reclaim duplicate private Qwen weights (after shared-runtime test)")
+                    if (qwenAdvancedExpanded) {
+                        OutlinedButton(onClick = {
+                            qwenFp16EmbeddingTrial = !qwenFp16EmbeddingTrial
+                            QwenDecoderPerformancePolicy.setFp16EmbeddingTrial(context, qwenFp16EmbeddingTrial)
+                            status = if (qwenFp16EmbeddingTrial)
+                                "K2A FP16 trial selected. Only exact SHA-256 verified companion files will load; baseline weights remain preserved."
+                            else "K2A trial disabled; original verified FP32 embeddings used."
+                        }, enabled = !transcriptionState.active && !npuActionRunning) {
+                            Text(if (qwenFp16EmbeddingTrial)
+                                "K2A FP16 embeddings: experimental ON (tap for baseline)"
+                                else "K2A FP16 embeddings: OFF (optional parity trial)")
                         }
-                    }
-                }
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        npuActionRunning = true
-                        try {
-                            val cleared = withContext(Dispatchers.IO) {
-                                Qwen3HybridPackageStore.clearTemporaryTestFiles(context)
+                        if (qwenVisibleSaved) {
+                            OutlinedButton(onClick = { qwenReclaimConfirm = true },
+                                enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                                Text("Reclaim duplicate private Qwen weights (after shared-runtime test)")
                             }
-                            status = if (cleared) "Qwen temporary test files deleted and verified"
-                                else "Qwen temporary test files could not be fully deleted"
-                        } catch (t: Throwable) { status = "Qwen temporary cleanup failed: ${t.message}" }
-                        finally { npuActionRunning = false }
-                    }
-                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                    Text("Clear Qwen temporary test files (manual)")
+                        }
+                    } // Advanced Qwen diagnostics and maintenance
                 }
-                if (qwenArchiveState == NpuArchiveState.READY && !Qwen3HybridPackageStore.fp16Installed(context)) {
-                    OutlinedButton(onClick = { onStartModelDownload(Qwen3HybridPackageStore.DOWNLOAD_ID) },
-                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                        Text("Upgrade Qwen to smaller Stage I FP16-storage model")
-                    }
-                }
-                if ((Qwen3HybridPackageStore.fp16Installed(context) || Qwen3HybridPackageStore.compactInstalled(context)) && Qwen3HybridPackageStore.legacyInstalled(context)) {
-                    OutlinedButton(onClick = { qwenLegacyDeleteConfirm = true                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                        Text("Remove old Qwen v1 weights (newer model verified)")
-                    }
-                }
-                if (Qwen3HybridPackageStore.fp16Installed(context) && Qwen3HybridPackageStore.compactInstalled(context)) {
-                    OutlinedButton(onClick = { qwenCompactDeleteConfirm = true },
-                        enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                        Text("Remove previous Qwen v2 decoder package (v3 verified)")
+                if (qwenAdvancedExpanded) {
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            npuActionRunning = true
+                            try {
+                                val cleared = withContext(Dispatchers.IO) {
+                                    Qwen3HybridPackageStore.clearTemporaryTestFiles(context)
+                                }
+                                status = if (cleared) "Qwen temporary test files deleted and verified"
+                                    else "Qwen temporary test files could not be fully deleted"
+                            } catch (t: Throwable) { status = "Qwen temporary cleanup failed: ${t.message}" }
+                            finally { npuActionRunning = false }
+                        }
+                    }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
+                        Text("Clear Qwen temporary test files (manual)")
                     }
                 }
                 if (qwenArchiveState == NpuArchiveState.INCOMPLETE) {
@@ -462,7 +451,7 @@ internal fun ModelsScreen(
                         Text("Clear incomplete Qwen downloads")
                     }
                 }
-                if (qwenArchiveState == NpuArchiveState.READY) {
+                if (qwenAdvancedExpanded && qwenArchiveState == NpuArchiveState.READY) {
                     OutlinedButton(onClick = {
                         scope.launch {
                             npuActionRunning = true
@@ -610,53 +599,6 @@ internal fun ModelsScreen(
                     Text("Reclaim private duplicate")
                 }
             }, dismissButton = { TextButton(onClick = { qwenReclaimConfirm = false }) { Text("Cancel") } })
-    }
-
-    if (qwenCompactDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { qwenCompactDeleteConfirm = false },
-            title = { Text("Remove older Qwen v2 files?") },
-            text = { Text("Only the Stage H compact FP32 package will be removed, after SHA-256 verification of the newer Stage I FP16-storage package. The NPU encoder, recordings and other models remain untouched.") },
-            confirmButton = {
-                Button(onClick = {
-                    qwenCompactDeleteConfirm = false
-                    scope.launch {
-                        npuActionRunning = true
-                        try {
-                            val ok = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.removeCompactAfterFp16(context) }
-                            status = if (ok) "Previous Qwen v2 weights removed; verified FP16 v3 retained" else "Old compact Qwen files could not be fully removed"
-                        } catch (t: Throwable) { status = "Qwen v2 cleanup failed: ${t.message}" }
-                        finally { npuActionRunning = false }
-                    }
-                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) { Text("Remove older v2 package") }
-            },
-            dismissButton = { TextButton(onClick = { qwenCompactDeleteConfirm = false }) { Text("Cancel") } }
-        )
-    }
-
-    if (qwenLegacyDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { qwenLegacyDeleteConfirm = false },
-            title = { Text("Remove old Qwen weights?") },
-            text = { Text("Your newer verified Qwen model will be retained. Only the obsolete app-private Qwen Stage G decoder package will be deleted. Your recordings and other ASR models will not be touched.") },
-            confirmButton = {
-                Button(onClick = {
-                    qwenLegacyDeleteConfirm = false
-                    scope.launch {
-                        npuActionRunning = true
-                        try {
-                            val ok = withContext(Dispatchers.IO) { Qwen3HybridPackageStore.removeLegacyAfterUpgrade(context) }
-                            status = if (ok) "Old Qwen Stage G weights removed; compact model retained"
-                                else "Could not remove old Qwen weights"
-                        } catch (t: Throwable) { status = "Qwen old-package cleanup failed: ${t.message}" }
-                        finally { npuActionRunning = false }
-                    }
-                }, enabled = !transcriptionState.active && !modelDownload.active && !npuActionRunning) {
-                    Text("Remove old weights")
-                }
-            },
-            dismissButton = { TextButton(onClick = { qwenLegacyDeleteConfirm = false }) { Text("Cancel") } }
-        )
     }
 
     if (npuDeleteConfirm) {

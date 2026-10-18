@@ -21,7 +21,7 @@ checks = {
     'existing visible package avoids private restore on download': 'Qwen already saved in Whisperapp/Models; no download or private copy needed' in store,
     'fast profile is opt-in': 'getBoolean(KEY, false)' in policy and 'if (fast(context)) 4 else 2' in policy,
     'thermal and per-step telemetry preserved': '"thermal_start"' in runner and '"decoder_step_ms"' in runner and '"model_storage_mode"' in runner,
-    'manual reclaim confirmation and no automatic deletion': 'qwenReclaimConfirm' in menu and 'Reclaim private duplicate' in menu and 'reclaimPrivateDuplicate(context)' in menu,
+    'manual reclaim confirmation and no automatic deletion': 'qwenReclaimConfirm' in menu and 'Reclaim private duplicate' in menu and 'reclaimPrivateDuplicate(context)' in menu and 'qwenAdvancedExpanded' in menu,
 }
 for label, ok in checks.items():
     print(('PASS' if ok else 'FAIL') + ': ' + label)

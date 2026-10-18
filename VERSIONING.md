@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.39
-versionName=6.5.39
+releaseVersion=6.5.40
+versionName=6.5.40
 versionCode=65039
 ```
 
-This source targets v6.5.39. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.40. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -29,7 +29,7 @@ See [README.md](README.md), [NPU.md](NPU.md), and [SPEAKER_DIARIZATION.md](SPEAK
 
 ### v6.5.15
 
-Experimental Omi QNN/ORT compatibility probe under Settings → Diagnostics;
+Historical (retired in v6.5.40): Omi QNN/ORT compatibility probe under Settings → Diagnostics;
 three compiled QNN 2.50 graph contracts, SHA-256 checks, per-attempt diagnostic
 capture and synthetic inference, no transcription or model selection changes.
 `versionCode=65015`.
@@ -38,7 +38,7 @@ capture and synthetic inference, no transcription or model selection changes.
 
 Omi NPU experimental model downloader using the existing foreground service; manifest
 validation, pinned SHA-256 and per-file SAF archive verification, resume support and
-per-stage diagnostics. Omi compatibility probe now reads the archived package without
+per-stage diagnostics. The historical Omi compatibility probe read the archived package without
 a document-tree selection. No Omi NPU speech recognition is enabled.
 `versionCode=65016`.
 
@@ -134,4 +134,4 @@ The v6.5.36 GitHub Actions run compiled Kotlin and native code, passed JVM unit 
   only after supplying a validated companion file and separate accuracy review.
 
 
-Version 6.5.39: Qwen cross-process configuration synchronization and optional CPU-arena memory experiment; see RELEASE-v6.5.39.md.
+Version 6.5.40: Qwen cross-process configuration synchronization and optional CPU-arena memory experiment; see RELEASE-v6.5.40.md.

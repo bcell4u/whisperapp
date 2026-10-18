@@ -661,24 +661,6 @@ internal object Qwen3HybridPackageStore {
         progress(100, total, total, "Qwen verified and saved in $location")
     }
 
-    /** Explicit user action after compact is ready; never remove the original during upgrade. */
-    fun removeLegacyAfterUpgrade(context: Context): Boolean {
-        require(verifiedFolder(context) == fp16Folder(context) || verifiedFolder(context) == compactFolder(context)) {
-            "Verify newer Qwen SHA-256 before deleting legacy weights"
-        }
-        val old = legacyFolder(context)
-        return (!old.exists() || old.deleteRecursively()) && !old.exists()
-    }
-
-    /** Explicit storage recovery: remove ONLY the verified older v2 package after v3 is ready. */
-    fun removeCompactAfterFp16(context: Context): Boolean {
-        require(verifiedFolder(context) == fp16Folder(context)) {
-            "Verify every Stage I FP16 asset SHA-256 before deleting v2"
-        }
-        val old = compactFolder(context)
-        return (!old.exists() || old.deleteRecursively()) && !old.exists()
-    }
-
     fun select(context: Context) {
         require(state(context) == NpuArchiveState.READY) { "Install Qwen hybrid package first" }
         // Worker uses the shared SAF archive directly whenever its descriptor bridge works.
