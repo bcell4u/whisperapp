@@ -73,7 +73,7 @@ internal fun ModelsScreen(
     var qwenCompactDeleteConfirm by remember { mutableStateOf(false) }
     var qwenReclaimConfirm by remember { mutableStateOf(false) }
     var qwenFastDecoder by remember { mutableStateOf(QwenDecoderPerformancePolicy.fast(context)) }
-    var qwenReuseStepInputs by remember { mutableStateOf(QwenDecoderPerformancePolicy.reusableStepInputs(context)) }
+    var qwenCpuArenaDisabled by remember { mutableStateOf(QwenDecoderPerformancePolicy.cpuArenaDisabled(context)) }
     var qwenFp16EmbeddingTrial by remember { mutableStateOf(QwenDecoderPerformancePolicy.useFp16EmbeddingTrial(context)) }
     var npuDeleteConfirm by remember { mutableStateOf(false) }
     var omiDeleteConfirm by remember { mutableStateOf(false) }
@@ -396,15 +396,15 @@ internal fun ModelsScreen(
                         Text(if (qwenFastDecoder) "Qwen CPU decoder: 4 threads (speed test)" else "Qwen CPU decoder: 2 threads (balanced) — tap to test 4")
                     }
                     OutlinedButton(onClick = {
-                        qwenReuseStepInputs = !qwenReuseStepInputs
-                        QwenDecoderPerformancePolicy.setReusableStepInputs(context, qwenReuseStepInputs)
-                        status = if (qwenReuseStepInputs)
-                            "Qwen reusable CPU step buffers ENABLED for next transcription. Keep FP16 embeddings OFF for initial comparison."
-                        else "Qwen original CPU step input allocation restored for next transcription."
+                        qwenCpuArenaDisabled = !qwenCpuArenaDisabled
+                        QwenDecoderPerformancePolicy.setCpuArenaDisabled(context, qwenCpuArenaDisabled)
+                        status = if (qwenCpuArenaDisabled)
+                            "Qwen memory trial: CPU arena disabled on NEXT transcription. Compare PSS, timing and output; revert if slower."
+                        else "Qwen standard ONNX Runtime CPU arena enabled for NEXT transcription."
                     }, enabled = !transcriptionState.active && !npuActionRunning) {
-                        Text(if (qwenReuseStepInputs)
-                            "Qwen reusable step buffers: ON (experimental)"
-                            else "Qwen reusable step buffers: OFF (baseline)")
+                        Text(if (qwenCpuArenaDisabled)
+                            "Qwen CPU arena: OFF (experimental memory test)"
+                            else "Qwen CPU arena: ON (baseline)")
                     }
                     OutlinedButton(onClick = {
                         qwenFp16EmbeddingTrial = !qwenFp16EmbeddingTrial

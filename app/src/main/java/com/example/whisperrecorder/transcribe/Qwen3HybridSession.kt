@@ -5,6 +5,7 @@ import android.os.SharedMemory
 import android.system.OsConstants
 import com.example.whisperrecorder.qwen.Qwen3HybridClient
 import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
+import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
 import org.json.JSONObject
 import java.nio.ByteOrder
 
@@ -12,13 +13,21 @@ import java.nio.ByteOrder
 internal class Qwen3HybridSession(context: Context) : AsrSession {
     private val app = context.applicationContext
     private val client = Qwen3HybridClient.connect(context)
+    private val config = QwenDecoderPerformancePolicy.snapshot(app)
     @Volatile private var cancelled = false
     override val nativeInfo: String
     init {
         try {
-            val outcome = client.prepare()
+            val outcome = client.prepare(config)
             require(outcome.optBoolean("ok")) {
                 "Qwen hybrid initialization failed: ${outcome.optString("error")}. This does not affect existing backends."
+            }
+            require(outcome.optInt("config_schema", -1) == 1 &&
+                outcome.optInt("decoder_threads", -1) == config.threads &&
+                outcome.optBoolean("fp16_embedding_requested") == config.fp16EmbeddingTrial &&
+                outcome.optBoolean("cpu_arena_disabled") == config.cpuArenaDisabled &&
+                !outcome.optBoolean("reusable_step_inputs", true)) {
+                "Qwen worker failed to acknowledge requested decoder configuration"
             }
             nativeInfo = "EXPERIMENTAL Qwen3 0.6B · QNN FP16 encoder + CPU FP32 ONNX decoder; ${outcome.optString("cpu_fallback")}; golden error ${outcome.optDouble("golden_max_abs")}; storage=${outcome.optString("model_storage_mode")}; storageFallback=${outcome.optString("model_storage_fallback")}"
         } catch (t: Throwable) {
@@ -37,6 +46,15 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
             require(response.optBoolean("ok")) {
                 "Qwen hybrid inference failed: ${response.optString("error")}. CPU fallback is disabled for the encoder."
             }
+            require(response.optInt("decoder_intra_threads", -1) == config.threads &&
+                response.optBoolean("decoder_cpu_arena_disabled") == config.cpuArenaDisabled &&
+                response.optBoolean("embedding_fp16_active") == config.fp16EmbeddingTrial) {
+                "Qwen decoder applied configuration differs from the main-process request"
+            }
+            if (response.optBoolean("fast_mode_thermal_guard")) {
+                // SharedPreferences changes must be made by the owning MAIN process.
+                QwenDecoderPerformancePolicy.setFast(app, false)
+            }
             AsrRecognition(text = response.getString("transcript"),
                 diagnostics = buildString {
                     append(" qualification=experimental qwen3Hybrid=true")
@@ -51,6 +69,9 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                     append(" fastThermalGuard=${response.optBoolean("fast_mode_thermal_guard")}")
                     append(" fp16EmbeddingActive=${response.optBoolean("embedding_fp16_active")}")
                     append(" reusableStepInputs=${response.optInt("decoder_reusable_step_inputs", 0) == 1}")
+                    append(" configAck=true requestedThreads=${config.threads}")
+                    append(" requestedCpuArenaDisabled=${config.cpuArenaDisabled}")
+                    append(" cpuArenaDisabledActive=${if (response.optBoolean("decoder_cpu_arena_disabled")) 1 else 0}")
                     for ((label, field) in listOf(
                         "preprocessMs" to "preprocess_ms", "encoderMs" to "encoder_ms",
                         "decoderLoadMs" to "decoder_load_ms", "decoderMs" to "decoder_ms",
@@ -67,6 +88,22 @@ internal class Qwen3HybridSession(context: Context) : AsrSession {
                         "pssAfterInitKb" to "decoder_pss_after_init_kb",
                         "pssAfterStepKb" to "decoder_pss_after_step_kb",
                         "reusableStepInputsActive" to "decoder_reusable_step_inputs",
+                        "configSchema" to "decoder_config_schema",
+                        "configAcknowledged" to "decoder_config_schema",
+                        "pssInitDeltaKb" to "decoder_pss_init_delta_kb",
+                        "pssStepDeltaKb" to "decoder_pss_step_delta_kb",
+                        "initSessionLoadMs" to "decoder_init_session_load_ms",
+                        "stepSessionLoadMs" to "decoder_step_session_load_ms",
+                        "beforeNativePssKb" to "decoder_before_native_pss_kb",
+                        "initNativePssKb" to "decoder_init_native_pss_kb",
+                        "stepNativePssKb" to "decoder_step_native_pss_kb",
+                        "beforeOtherPssKb" to "decoder_before_other_pss_kb",
+                        "initOtherPssKb" to "decoder_init_other_pss_kb",
+                        "stepOtherPssKb" to "decoder_step_other_pss_kb",
+                        "beforeDalvikPssKb" to "decoder_before_dalvik_pss_kb",
+                        "initDalvikPssKb" to "decoder_init_dalvik_pss_kb",
+                        "stepDalvikPssKb" to "decoder_step_dalvik_pss_kb",
+                        "stepPrivateDirtyKb" to "decoder_step_private_dirty_kb",
                         "kvPayloadBytesMax" to "decoder_kv_payload_bytes_max",
                         "decoderThreads" to "decoder_intra_threads",
                         "encoderGraphCalls" to "encoder_graph_calls",

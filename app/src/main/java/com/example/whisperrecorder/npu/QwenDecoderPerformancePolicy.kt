@@ -6,17 +6,22 @@ import android.content.Context
 internal object QwenDecoderPerformancePolicy {
     private const val PREFS = "qwen-decoder-performance"
     private const val KEY = "fast_four_threads"
-    private const val KEY_REUSE = "experimental_reusable_step_inputs"
     private const val KEY_FP16 = "opt_in_verified_k2a_fp16_embeddings"
+    private const val KEY_NO_ARENA = "experimental_disable_cpu_arena"
     fun fast(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getBoolean(KEY, false)
     fun threads(context: Context): Int = if (fast(context)) 4 else 2
-    fun reusableStepInputs(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_REUSE, false)
-    fun setReusableStepInputs(context: Context, enabled: Boolean) {
+    // Retired after the S26 trial showed no performance gain. Keep the persisted
+    // key only so upgrades do not revive a previously enabled experiment.
+    fun reusableStepInputs(context: Context): Boolean = false
+    fun cpuArenaDisabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getBoolean(KEY_NO_ARENA, false)
+    fun setCpuArenaDisabled(context: Context, disabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_REUSE, enabled).apply()
+            .putBoolean(KEY_NO_ARENA, disabled).apply()
     }
+    fun snapshot(context: Context): QwenDecoderRunConfig = QwenDecoderRunConfig(
+        threads(context), useFp16EmbeddingTrial(context), cpuArenaDisabled(context))
     fun useFp16EmbeddingTrial(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_FP16, false)
     fun setFp16EmbeddingTrial(context: Context, enabled: Boolean) {

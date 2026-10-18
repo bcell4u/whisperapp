@@ -10,6 +10,8 @@ import android.os.Looper
 import android.os.RemoteException
 import android.os.SharedMemory
 import org.json.JSONObject
+import com.example.whisperrecorder.npu.QwenDecoderRunConfig
+import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -26,7 +28,9 @@ internal class Qwen3HybridClient private constructor(private val app: Context) :
         override fun onBindingDied(name: ComponentName?) { remote = null; signal.countDown() }
         override fun onNullBinding(name: ComponentName?) { remote = null; signal.countDown() }
     }
-    fun prepare(): JSONObject = JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.prepare())
+    /** Snapshot options in the main process, then send them to the worker explicitly. */
+    fun prepare(config: QwenDecoderRunConfig = QwenDecoderPerformancePolicy.snapshot(app)): JSONObject =
+        JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.prepare(config.toJson()))
     fun transcribe(pcm: SharedMemory, count: Int): JSONObject = try {
         JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.transcribe(pcm, count))
     } catch (e: DeadObjectException) {

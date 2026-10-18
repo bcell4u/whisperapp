@@ -1,6 +1,6 @@
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.38**, Android `versionCode=65038`. See [RELEASE-v6.5.38.md](RELEASE-v6.5.38.md) for experimental Qwen decoder-step reuse and memory profiling. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.39**, Android `versionCode=65039`. See [RELEASE-v6.5.39.md](RELEASE-v6.5.39.md) for Qwen configuration synchronization and decoder memory qualification. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -130,3 +130,7 @@ Existing private reports remain visible in Settings > Diagnostics and can still 
 shared/deleted. Debug and release ZIP naming is isolated to avoid cross-app pruning
 of shared Logs. Other existing text/error logs and model folders remain unchanged.
 This development baseline still excludes the experimental Qwen 0.6B hybrid.
+
+
+## v6.5.39 Qwen memory and configuration tests
+See `RELEASE-v6.5.39.md`. CPU arena experiment is opt-in; settings are passed explicitly to :qwen via AIDL.

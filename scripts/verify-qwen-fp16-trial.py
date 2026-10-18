@@ -11,7 +11,8 @@ assert 'e80150119fa5f7e56e85aed64c3a02d5c78eb7a37cfdcb973d0987316f15bee2' in rea
 assert '311164928L' in reader
 assert 'archiveDigest(context, uri) { false }.equals(QwenEmbeddingReader.FP16_SHA256' in store
 assert 'ModelFileOps.digest(candidate, "SHA-256")' in runner
-assert 'useFp16EmbeddingTrial(applicationContext)' in runner and 'getBoolean(KEY_FP16, false)' in policy
+assert 'config.fp16EmbeddingTrial' in runner and 'getBoolean(KEY_FP16, false)' in policy
+assert 'QwenDecoderPerformancePolicy.snapshot(app)' in (base/'qwen/Qwen3HybridClient.kt').read_text()
 assert '"embed_tokens.bin"' in runner and 'FP16_FILE' in runner
 assert 'decoder_weights_fp16.data' in store
 assert 'reclaimPrivateDuplicate' in store

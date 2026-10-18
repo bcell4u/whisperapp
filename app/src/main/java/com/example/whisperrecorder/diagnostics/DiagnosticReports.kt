@@ -219,7 +219,14 @@ object DiagnosticReports {
                     "decoder_first_step_ms", "decoder_slow_steps_over_250ms",
                     "decoder_prefill_pss_kb", "decoder_pss_before_load_kb",
                     "decoder_pss_after_init_kb", "decoder_pss_after_step_kb",
-                    "decoder_reusable_step_inputs",
+                    "decoder_reusable_step_inputs", "decoder_cpu_arena_disabled",
+                    "decoder_config_schema", "decoder_pss_init_delta_kb", "decoder_pss_step_delta_kb",
+                    "decoder_init_session_load_ms", "decoder_step_session_load_ms",
+                    "decoder_before_native_pss_kb", "decoder_init_native_pss_kb",
+                    "decoder_step_native_pss_kb", "decoder_before_other_pss_kb",
+                    "decoder_init_other_pss_kb", "decoder_step_other_pss_kb",
+                    "decoder_before_dalvik_pss_kb", "decoder_init_dalvik_pss_kb",
+                    "decoder_step_dalvik_pss_kb", "decoder_step_private_dirty_kb",
                     "qwen_cleanup_verified")) return
             workerMetrics.add(JSONObject().put("name", name).put("value", value.coerceAtLeast(0))
                 .put("segment_index", segmentIndex.coerceAtLeast(0)))

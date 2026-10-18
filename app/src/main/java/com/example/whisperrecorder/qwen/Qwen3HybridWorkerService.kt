@@ -20,7 +20,7 @@ import com.example.whisperrecorder.npu.Qwen3ByteTokenizer
 import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import com.example.whisperrecorder.npu.QwenEmbeddingReader
 import com.example.whisperrecorder.models.ModelFileOps
-import com.example.whisperrecorder.npu.QwenDecoderPerformancePolicy
+import com.example.whisperrecorder.npu.QwenDecoderRunConfig
 import com.example.whisperrecorder.npu.Qwen3Mel
 import org.json.JSONObject
 import java.io.File
@@ -39,9 +39,19 @@ class Qwen3HybridWorkerService : Service() {
     private var runtime: Runtime? = null
     @Volatile private var cancelRequested = false
     private val binder = object : IQwen3HybridService.Stub() {
-        override fun prepare(): String = response("prepare") {
-            if (runtime == null) runtime = Runtime()
-            try { runtime!!.prepare() } catch (t: Throwable) { closeSession(); throw t }
+        override fun prepare(configJson: String): String = response("prepare") {
+            val requested = QwenDecoderRunConfig.fromJson(configJson)
+            // A newly requested configuration is never silently ignored by a warm worker.
+            if (runtime != null && runtime!!.config != requested) closeSession()
+            if (runtime == null) runtime = Runtime(requested)
+            try {
+                runtime!!.prepare()
+                    .put("config_schema", QwenDecoderRunConfig.SCHEMA)
+                    .put("decoder_threads", requested.threads)
+                    .put("fp16_embedding_requested", requested.fp16EmbeddingTrial)
+                    .put("cpu_arena_disabled", requested.cpuArenaDisabled)
+                    .put("reusable_step_inputs", false)
+            } catch (t: Throwable) { closeSession(); throw t }
         }
         override fun transcribe(pcm: SharedMemory, sampleCount: Int): String = response("transcribe") {
             require(sampleCount in 1..Qwen3Mel.SAMPLES)
@@ -77,17 +87,26 @@ class Qwen3HybridWorkerService : Service() {
         val prefillPssKb: Int
     )
 
-    private inner class Runtime : AutoCloseable {
+    private data class MemorySnapshot(val pssKb: Int, val nativeKb: Int,
+        val dalvikKb: Int, val otherKb: Int, val privateDirtyKb: Int)
+
+    private inner class Runtime(val config: QwenDecoderRunConfig) : AutoCloseable {
         private val env = OrtEnvironment.getEnvironment()
         private var sharedFallbackReason = "none"
         private var runtimeAssets: Qwen3HybridPackageStore.RuntimeAssets = openRuntimeAssets()
         private val modelDir: File get() = runtimeAssets.directory
-        private val decoderThreads: Int = QwenDecoderPerformancePolicy.threads(applicationContext)
-        private val reuseStepInputs = QwenDecoderPerformancePolicy.reusableStepInputs(applicationContext)
-        private var pssBeforeDecoderKb = -1
-        private var pssAfterInitKb = -1
-        private var pssAfterStepKb = -1
-        private fun workerPssKb(): Int = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }.totalPss
+        private val decoderThreads: Int = config.threads
+        private fun memorySnapshot(): MemorySnapshot {
+            val info = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+            return MemorySnapshot(info.totalPss, info.nativePss, info.dalvikPss,
+                info.otherPss, info.totalPrivateDirty)
+        }
+        private var beforeDecoder = MemorySnapshot(-1, -1, -1, -1, -1)
+        private var afterInit = beforeDecoder
+        private var afterStep = beforeDecoder
+        private var initSessionLoadMs = -1L
+        private var stepSessionLoadMs = -1L
+        private fun workerPssKb(): Int = memorySnapshot().pssKb
 
         private fun openRuntimeAssets(): Qwen3HybridPackageStore.RuntimeAssets {
             // Like Parakeet, hold seekable DocumentsProvider descriptors for the lifetime
@@ -221,18 +240,24 @@ class Qwen3HybridWorkerService : Service() {
                 setInterOpNumThreads(1)
                 addConfigEntry("session.intra_op.allow_spinning", "0")
                 addConfigEntry("session.inter_op.allow_spinning", "0")
+                // Reversible memory-vs-latency experiment; does not share model weights.
+                if (config.cpuArenaDisabled) setCPUArenaAllocator(false)
             }
             val initOpts = cpuOptions()
             val stepOpts = cpuOptions()
             try {
-                pssBeforeDecoderKb = workerPssKb()
+                beforeDecoder = memorySnapshot()
+                val initStarted = SystemClock.elapsedRealtime()
                 decoderInit = env.createSession(File(modelDir,"decoder_init.onnx").absolutePath, initOpts)
-                pssAfterInitKb = workerPssKb()
+                initSessionLoadMs = SystemClock.elapsedRealtime() - initStarted
+                afterInit = memorySnapshot()
+                val stepStarted = SystemClock.elapsedRealtime()
                 decoderStep = env.createSession(File(modelDir,"decoder_step.onnx").absolutePath, stepOpts)
-                pssAfterStepKb = workerPssKb()
+                stepSessionLoadMs = SystemClock.elapsedRealtime() - stepStarted
+                afterStep = memorySnapshot()
                 require(decoderInit!!.inputNames == setOf("input_ids", "position_ids", "audio_features", "audio_offset"))
                 require(decoderStep!!.inputNames == setOf("input_embeds", "position_ids", "past_keys", "past_values"))
-                val useK2a = QwenDecoderPerformancePolicy.useFp16EmbeddingTrial(applicationContext)
+                val useK2a = config.fp16EmbeddingTrial
                 val candidate = File(modelDir, QwenEmbeddingReader.FP16_FILE)
                 if (useK2a) {
                     require(runtimeAssets.stage == "stage-i-fp16-0.6b") {
@@ -301,7 +326,7 @@ class Qwen3HybridWorkerService : Service() {
             Debug.getMemoryInfo(memory)
             val thermalEnd = thermalStatus()
             val thermalGuardTriggered = decoderThreads == 4 && thermalEnd >= PowerManager.THERMAL_STATUS_SEVERE
-            if (thermalGuardTriggered) QwenDecoderPerformancePolicy.setFast(applicationContext, false)
+            // Main-process session applies next-run policy after observing this flag.
             return JSONObject().put("transcript", transcript).put("tokens", decodeStats.tokens.size)
                 .put("backend", "QNN-HTP FP16 encoder + CPU FP32 ONNX decoder")
                 .put("encoder_graph_calls", 1)
@@ -322,10 +347,26 @@ class Qwen3HybridWorkerService : Service() {
                 .put("decoder_first_step_ms", decodeStats.firstStepMs)
                 .put("decoder_slow_steps_over_250ms", decodeStats.slowStepsOver250Ms)
                 .put("decoder_prefill_pss_kb", decodeStats.prefillPssKb)
-                .put("decoder_pss_before_load_kb", pssBeforeDecoderKb)
-                .put("decoder_pss_after_init_kb", pssAfterInitKb)
-                .put("decoder_pss_after_step_kb", pssAfterStepKb)
-                .put("decoder_reusable_step_inputs", if (reuseStepInputs) 1 else 0)
+                .put("decoder_pss_before_load_kb", beforeDecoder.pssKb)
+                .put("decoder_pss_after_init_kb", afterInit.pssKb)
+                .put("decoder_pss_after_step_kb", afterStep.pssKb)
+                .put("decoder_pss_init_delta_kb", afterInit.pssKb - beforeDecoder.pssKb)
+                .put("decoder_pss_step_delta_kb", afterStep.pssKb - afterInit.pssKb)
+                .put("decoder_init_session_load_ms", initSessionLoadMs)
+                .put("decoder_step_session_load_ms", stepSessionLoadMs)
+                .put("decoder_before_native_pss_kb", beforeDecoder.nativeKb)
+                .put("decoder_init_native_pss_kb", afterInit.nativeKb)
+                .put("decoder_step_native_pss_kb", afterStep.nativeKb)
+                .put("decoder_before_other_pss_kb", beforeDecoder.otherKb)
+                .put("decoder_init_other_pss_kb", afterInit.otherKb)
+                .put("decoder_step_other_pss_kb", afterStep.otherKb)
+                .put("decoder_before_dalvik_pss_kb", beforeDecoder.dalvikKb)
+                .put("decoder_init_dalvik_pss_kb", afterInit.dalvikKb)
+                .put("decoder_step_dalvik_pss_kb", afterStep.dalvikKb)
+                .put("decoder_step_private_dirty_kb", afterStep.privateDirtyKb)
+                .put("decoder_cpu_arena_disabled", config.cpuArenaDisabled)
+                .put("decoder_config_schema", QwenDecoderRunConfig.SCHEMA)
+                .put("decoder_reusable_step_inputs", 0)
                 .put("decoder_kv_payload_bytes_max", decodeStats.kvPayloadBytesMax)
                 .put("fast_mode_thermal_guard", thermalGuardTriggered)
                 .put("decoder_embedding_io_ms", decodeStats.embeddingMs)
@@ -390,12 +431,8 @@ class Qwen3HybridWorkerService : Service() {
                 var token = nextToken(requireNotNull(current))
                 argmaxMs += SystemClock.elapsedRealtime() - firstArgmaxStart
                 outputs.add(token)
-                // Preserve the known-good allocation pathway as the default. The
-                // reusable path is explicitly opt-in for controlled S26 A/B testing.
-                val reusable = if (reuseStepInputs) QwenReusableStepInputs(env) else null
-                val embeddingRow = if (reuseStepInputs) FloatArray(QwenEmbeddingReader.WIDTH) else null
-                val embeddingScratch = if (reuseStepInputs) ByteArray(QwenEmbeddingReader.WIDTH * 4) else null
-                try {
+                // Original CPU inputs remain the proven path; the slower reusable-input
+                // experiment has been removed rather than kept as dead implementation.
                 for (step in 0 until 255) {
                     if (token == 151643 || token == 151645) return DecodeStats(
                         outputs, prefillMs, stepMs, steps, embeddingMs, argmaxMs, stepLatencies,
@@ -403,11 +440,7 @@ class Qwen3HybridWorkerService : Service() {
                     )
                     if (cancelRequested) throw CancellationException("Qwen token generation cancelled")
                     val embeddingStart = SystemClock.elapsedRealtime()
-                    val inputEmbedding = if (reusable != null) {
-                        QwenEmbeddingReader.readRowInto(requireNotNull(embedding), token,
-                            fp16EmbeddingActive, requireNotNull(embeddingRow), requireNotNull(embeddingScratch))
-                        requireNotNull(embeddingRow)
-                    } else readEmbedding(token)
+                    val inputEmbedding = readEmbedding(token)
                     embeddingMs += SystemClock.elapsedRealtime() - embeddingStart
                     val prior = requireNotNull(current)
                     val keys = prior.get("present_keys").orElseThrow { IllegalStateException("Qwen keys output missing") } as OnnxTensor
@@ -418,18 +451,10 @@ class Qwen3HybridWorkerService : Service() {
                     }
                     kvPayloadBytesMax = maxOf(kvPayloadBytesMax, tensorBytes(keys) + tensorBytes(values))
                     val stepStart = SystemClock.elapsedRealtime()
-                    val next = if (reusable != null) {
-                        reusable.update(inputEmbedding, prompt.size + step.toLong())
-                        requireNotNull(decoderStep).run(mapOf(
-                            "input_embeds" to reusable.embeddingTensor,
-                            "position_ids" to reusable.positionTensor,
-                            "past_keys" to keys, "past_values" to values))
-                    } else {
-                        OnnxTensor.createTensor(env, FloatBuffer.wrap(inputEmbedding), longArrayOf(1,1,1024)).use { embeds ->
-                            OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(prompt.size + step.toLong())), longArrayOf(1,1)).use { pos ->
-                                requireNotNull(decoderStep).run(mapOf("input_embeds" to embeds,
-                                    "position_ids" to pos, "past_keys" to keys, "past_values" to values))
-                            }
+                    val next = OnnxTensor.createTensor(env, FloatBuffer.wrap(inputEmbedding), longArrayOf(1,1,1024)).use { embeds ->
+                        OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(prompt.size + step.toLong())), longArrayOf(1,1)).use { pos ->
+                            requireNotNull(decoderStep).run(mapOf("input_embeds" to embeds,
+                                "position_ids" to pos, "past_keys" to keys, "past_values" to values))
                         }
                     }
                     val elapsedStep = SystemClock.elapsedRealtime() - stepStart
@@ -446,7 +471,6 @@ class Qwen3HybridWorkerService : Service() {
                     outputs.add(token)
                 }
                 throw IllegalStateException("Qwen output truncated at tested 256-token generation cap")
-                } finally { reusable?.close() }
             } finally { runCatching { current?.close() } }
         }
 

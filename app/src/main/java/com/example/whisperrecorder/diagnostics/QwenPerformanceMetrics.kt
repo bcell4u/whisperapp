@@ -23,7 +23,23 @@ internal object QwenPerformanceMetrics {
         "pssBeforeDecoderKb" to "decoder_pss_before_load_kb",
         "pssAfterInitKb" to "decoder_pss_after_init_kb",
         "pssAfterStepKb" to "decoder_pss_after_step_kb",
-        "reusableStepInputsActive" to "decoder_reusable_step_inputs"
+        "reusableStepInputsActive" to "decoder_reusable_step_inputs",
+        "cpuArenaDisabledActive" to "decoder_cpu_arena_disabled",
+        "configSchema" to "decoder_config_schema",
+        "pssInitDeltaKb" to "decoder_pss_init_delta_kb",
+        "pssStepDeltaKb" to "decoder_pss_step_delta_kb",
+        "initSessionLoadMs" to "decoder_init_session_load_ms",
+        "stepSessionLoadMs" to "decoder_step_session_load_ms",
+        "beforeNativePssKb" to "decoder_before_native_pss_kb",
+        "initNativePssKb" to "decoder_init_native_pss_kb",
+        "stepNativePssKb" to "decoder_step_native_pss_kb",
+        "beforeOtherPssKb" to "decoder_before_other_pss_kb",
+        "initOtherPssKb" to "decoder_init_other_pss_kb",
+        "stepOtherPssKb" to "decoder_step_other_pss_kb",
+        "beforeDalvikPssKb" to "decoder_before_dalvik_pss_kb",
+        "initDalvikPssKb" to "decoder_init_dalvik_pss_kb",
+        "stepDalvikPssKb" to "decoder_step_dalvik_pss_kb",
+        "stepPrivateDirtyKb" to "decoder_step_private_dirty_kb"
     )
 
     fun parse(source: String): Map<String, Long> {

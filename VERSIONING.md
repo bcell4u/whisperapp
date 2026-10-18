@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.38
-versionName=6.5.38
-versionCode=65038
+releaseVersion=6.5.39
+versionName=6.5.39
+versionCode=65039
 ```
 
-This source targets v6.5.38. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.39. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -132,3 +132,6 @@ The v6.5.36 GitHub Actions run compiled Kotlin and native code, passed JVM unit 
 - Source validation is not a device-performance benchmark. Perform controlled
   baseline/reuse A/B with original FP32 embeddings and identical audio, then K2A
   only after supplying a validated companion file and separate accuracy review.
+
+
+Version 6.5.39: Qwen cross-process configuration synchronization and optional CPU-arena memory experiment; see RELEASE-v6.5.39.md.
