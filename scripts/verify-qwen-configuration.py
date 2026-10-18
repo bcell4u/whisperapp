@@ -19,4 +19,12 @@ assert 'Qwen reusable step buffers: ON' not in menu
 assert 'QwenReusableStepInputs' not in worker
 assert 'class QwenReusableStepInputs' not in (base/'qwen/QwenReusableStepInputs.kt').read_text()
 assert 'decoder_pss_step_delta_kb' in reports
-print('PASS: worker config handoff, retired buffer path, memory trial and diagnostic allowlist')
+# These are host JVM tests, not instrumented Android tests. The Android stub
+# JSONObject throws RuntimeException; keep a real JSON dependency scoped to tests.
+build_file=(root/'app/build.gradle.kts').read_text()
+assert 'testImplementation("org.json:json:20240303")' in build_file
+assert 'implementation("org.json:json:20240303")' not in build_file.replace('testImplementation("org.json:json:20240303")', '')
+config_test=(root/'app/src/test/java/com/example/whisperrecorder/npu/QwenDecoderRunConfigTest.kt').read_text()
+assert 'configRoundTripAndVersionedHandshake' in config_test
+assert 'rejectsUnsupportedParametersBeforeWorkerAllocation' in config_test
+print('PASS: worker config handoff, retired buffer path, memory trial, JVM JSON test runtime and diagnostic allowlist')

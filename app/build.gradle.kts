@@ -130,4 +130,7 @@ dependencies {
     // Downloaded and SHA-256 verified by GitHub Actions. Model weights are never bundled.
     implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     testImplementation("junit:junit:4.13.2")
+    // JVM unit tests do not have a functional Android org.json implementation.
+    // Use real JSONObject strictly in tests; Android runtime JSON stays unchanged.
+    testImplementation("org.json:json:20240303")
 }

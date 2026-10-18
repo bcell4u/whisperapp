@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.5.41
-versionName=6.5.41
-versionCode=65041
+releaseVersion=6.5.42
+versionName=6.5.42
+versionCode=65042
 ```
 
-This source targets v6.5.41. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.5.42. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -137,3 +137,5 @@ The v6.5.36 GitHub Actions run compiled Kotlin and native code, passed JVM unit 
 Version 6.5.40: Qwen cross-process configuration synchronization and optional CPU-arena memory experiment; see RELEASE-v6.5.40.md.
 
 Version 6.5.41: restored the general Diagnostics transcription-log preview state inadvertently removed with the Omi probe. No model/backend or runtime behavior changed. See RELEASE-v6.5.41.md.
+
+Version 6.5.42: Fixed v6.5.41 GitHub Actions local JVM unit-test failures in `QwenDecoderRunConfigTest` by adding a test-only `org.json` implementation; no Android runtime, model, or inference changes. See RELEASE-v6.5.42.md.
