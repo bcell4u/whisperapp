@@ -1,12 +1,12 @@
 # Self-contained: copy THIS ONE FILE to .github/workflows in any GitHub repo.
 # It does not require checking Builder sources into the repository.
-name: Qwen bridge probe - native ARM64 only (no APK)
+name: Qwen native instrumented bridge probe (ARM64, no APK)
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - ".github/workflows/qwen-native-bridge-probe.yml"
+      - '.github/workflows/qwen-native-bridge-probe.yml' 
 permissions:
   contents: read
 jobs:
@@ -59,10 +59,14 @@ jobs:
           #include <limits>
           #include <stdexcept>
           #include <vector>
+          #include <string>
           
           static constexpr int N_AUDIO = 156;
           static constexpr int D = 1024;
           static constexpr int VOCAB = 151936;
+          // Deterministic protocol marker: Windows checks ELF contents before ANY phone stage.
+          // This marker does not qualify M-RoPE or transcript correctness.
+          static constexpr char PROBE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0464A_TRACE_V2";
           
           static std::vector<float> read_audio(const char * name) {
               std::ifstream f(name, std::ios::binary | std::ios::ate);
@@ -85,11 +89,18 @@ jobs:
           }
           
           int main(int argc, char ** argv) {
-              if (argc < 3 || argc > 4) {
-                  std::fprintf(stderr, "Usage: %s decoder-q8.gguf encoder-output.f32le [steps <= 128]\n", argv[0]);
+              if (argc == 2 && std::string(argv[1]) == "--probe-info") {
+                  std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\"}\n", PROBE_PROTOCOL_ID);
+                  return 0;
+              }
+              if (argc < 3 || argc > 5) {
+                  std::fprintf(stderr, "Usage: %s decoder-q8.gguf encoder-output.f32le [steps <= 128] [--private-trace]\n", argv[0]);
                   return 2;
               }
-              const int n_steps = argc == 4 ? std::atoi(argv[3]) : 48;
+              const int n_steps = argc >= 4 ? std::atoi(argv[3]) : 48;
+              // Never emit private transcript-bearing token IDs during ordinary tests.
+              const bool private_trace = argc == 5 && std::string(argv[4]) == "--private-trace";
+              if (argc == 5 && !private_trace) return 2;
               if (n_steps <= 0 || n_steps > 128) return 2;
               llama_backend_init();
               llama_model * model = nullptr;
@@ -121,11 +132,17 @@ jobs:
                   constexpr llama_token prefix[] = {151644,9125,198,151645,198,151644,882,198,151669};
                   constexpr llama_token suffix[] = {151670,151645,198,151644,77091,198};
                   int pos = 0;
+                  // Four-axis values actually supplied to llama.cpp. This is still the
+                  // provisional mapping and is NOT certified as Qwen3-ASR M-RoPE.
+                  std::vector<int> supplied_positions;
+                  if (private_trace) supplied_positions.reserve(171 * 4);
                   auto add_token = [&](int tok) {
                       const int idx = llama_batch_ext_add_token(batch, 0, tok);
                       if (idx < 0) throw std::runtime_error("Adding token failed");
-                      const llama_pos p = pos++;
-                      if (!llama_batch_ext_set_pos(batch, idx, &p)) throw std::runtime_error("Token pos failed");
+                      const llama_pos current = pos++;
+                      const llama_pos p[4] = {current,current,current,current};
+                      if (!llama_batch_ext_set_pos(batch, idx, p)) throw std::runtime_error("Token pos failed");
+                      if (private_trace) for (int axis=0;axis<4;++axis) supplied_positions.push_back(p[axis]);
                       return idx;
                   };
                   for (llama_token token : prefix) add_token(token);
@@ -137,6 +154,7 @@ jobs:
                       // candidate. Must be compared against upstream ASR mtmd and ONNX logits.
                       const llama_pos p[4] = {pos,pos,pos,pos};
                       if (!llama_batch_ext_set_pos(batch, idx, p)) throw std::runtime_error("Audio pos failed");
+                      if (private_trace) for (int axis=0;axis<4;++axis) supplied_positions.push_back(p[axis]);
                       ++pos;
                   }
                   int last = -1;
@@ -153,6 +171,8 @@ jobs:
                   std::vector<long long> step_times;
                   int generated = 0;
                   bool eos_reached = false;
+                  std::vector<int> generated_token_ids;
+                  if (private_trace) generated_token_ids.reserve(n_steps);
                   const auto begin_steps = clock::now();
                   for (int step=0;step<n_steps;step++) {
                       // Hash token IDs without printing potentially identifying text or token values.
@@ -161,11 +181,13 @@ jobs:
                           token_hash *= 1099511628211ULL;
                       }
                       ++generated;
+                      if (private_trace) generated_token_ids.push_back(token);
                       if (token == 151643 || token == 151645) { eos_reached = true; break; }
                       llama_batch_ext_clear(batch);
                       const int idx = llama_batch_ext_add_token(batch, 0, token);
-                      const llama_pos p = pos++;
-                      if (idx < 0 || !llama_batch_ext_set_pos(batch, idx, &p) ||
+                      const llama_pos current = pos++;
+                      const llama_pos p[4] = {current,current,current,current};
+                      if (idx < 0 || !llama_batch_ext_set_pos(batch, idx, p) ||
                           !llama_batch_ext_set_output_logits(batch, idx, true))
                           throw std::runtime_error("Generation input rejected");
                       auto t = clock::now();
@@ -190,6 +212,22 @@ jobs:
                               pos, (long long)prefill, (long long)generation_ms, generated,
                               eos_reached ? "true" : "false", percentile(.50), percentile(.95),
                               (unsigned long long)token_hash);
+                  if (private_trace) {
+                      // PRIVATE output: the Windows runner consumes this in memory, compares
+                      // it to ONNX, and NEVER includes the tokens/positions in its ZIP.
+                      // Do not turn this flag on when running the probe unmediated.
+                      std::printf("WR_BRIDGE_PRIVATE_TRACE={\"schema\":1,\"position_kind\":\"provisional_linear_4d\",\"prompt_positions\":[");
+                      for (size_t i=0;i<supplied_positions.size();i+=4) {
+                          if (i) std::printf(",");
+                          std::printf("[%d,%d,%d,%d]", supplied_positions[i],supplied_positions[i+1],supplied_positions[i+2],supplied_positions[i+3]);
+                      }
+                      std::printf("],\"token_ids\":[");
+                      for (size_t i=0;i<generated_token_ids.size();++i) {
+                          if (i) std::printf(",");
+                          std::printf("%d",generated_token_ids[i]);
+                      }
+                      std::printf("]}\n");
+                  }
                   code = 0;
               } catch (const std::exception & ex) {
                   std::fprintf(stderr,"INCONCLUSIVE: %s\n",ex.what());
