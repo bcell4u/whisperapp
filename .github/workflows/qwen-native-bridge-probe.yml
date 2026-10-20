@@ -47,6 +47,7 @@ jobs:
           #include "llama.h"
           #include <algorithm>
           #include <chrono>
+          #include <ctime>
           #include <cmath>
           #include <cstdint>
           #include <cstdio>
@@ -66,6 +67,7 @@ jobs:
           // This marker does not qualify M-RoPE or transcript correctness.
           static constexpr char PROBE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0464A_TRACE_V2";
           static constexpr char MULTI_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0482_MULTI_V1";
+          static constexpr char CPU_TUNE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0488_CPU_TUNE_V1";
           
           static std::vector<float> read_audio(const char * name) {
               std::ifstream f(name, std::ios::binary | std::ios::ate);
@@ -89,20 +91,26 @@ jobs:
           
           int main(int argc, char ** argv) {
               if (argc == 2 && std::string(argv[1]) == "--probe-info") {
-                  std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID);
+                  std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID);
                   return 0;
               }
-              if (argc < 3 || argc > 5) {
+              if (argc < 3 || argc > 7) {
                   std::fprintf(stderr, "Usage: %s decoder-q8.gguf encoder-output.f32le [steps <= 128] [--private-trace]\n", argv[0]);
                   return 2;
               }
               // --multi uses a bounded, strictly named manifest of feature filenames in
               // the same Builder-owned phone directory. Only one model/context load.
-              const bool multi = argc == 5 && std::string(argv[2]) == "--multi";
+              const bool tuned = argc == 7 && std::string(argv[2]) == "--multi" &&
+                  std::string(argv[5]) == "--decode-threads";
+              const bool multi = (argc == 5 || tuned) && std::string(argv[2]) == "--multi";
+              const int decode_threads = tuned ? std::atoi(argv[6]) : 4;
               const int n_steps = multi ? std::atoi(argv[4]) : argc >= 4 ? std::atoi(argv[3]) : 48;
               // Never emit private transcript-bearing token IDs during the multi benchmark.
               const bool private_trace = !multi && argc == 5 && std::string(argv[4]) == "--private-trace";
-              if (argc == 5 && !private_trace && !multi) return 2;
+              if ((argc == 5 && !private_trace && !multi) ||
+                  (argc != 5 && argc != 7 && argc > 4) ||
+                  (argc == 7 && !tuned) ||
+                  (tuned && decode_threads != 2 && decode_threads != 3 && decode_threads != 4)) return 2;
               if (n_steps <= 0 || n_steps > 128) return 2;
               llama_backend_init();
               llama_model * model = nullptr;
@@ -146,7 +154,7 @@ jobs:
                   cp.n_ctx = 512;
                   cp.n_batch = 256;
                   cp.n_ubatch = 256;
-                  cp.n_threads = 4;
+                  cp.n_threads = decode_threads;
                   cp.n_threads_batch = 4;
                   ctx = llama_init_from_model(model, cp);
                   if (!ctx) throw std::runtime_error("Could not initialize decoder context");
@@ -154,6 +162,7 @@ jobs:
                   if (!batch) throw std::runtime_error("No extended batch API available");
                   const auto model_load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - model_load_begin).count();
                   const auto segments_begin = clock::now();
+                  const std::clock_t cpu_begin = std::clock();
                   for (size_t segment = 0; segment < feature_paths.size(); ++segment) {
                       if (segment) {
                           llama_memory_clear(llama_get_memory(ctx), true);
@@ -278,11 +287,25 @@ jobs:
                       const long long rss_kb = getrusage(RUSAGE_SELF, &resource) == 0 ?
                           (long long)resource.ru_maxrss : 0;
                       const auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - segments_begin).count();
-                      std::printf("WR_BRIDGE_MULTI_SUMMARY={\"segments\":%zu,\"model_loads\":1,"
-                                  "\"model_load_ms\":%lld,\"decoder_segments_wall_ms\":%lld,"
-                                  "\"rss_peak_kb\":%lld,\"mrope_parity_verified\":false}\n",
-                                  feature_paths.size(), (long long)model_load_ms,
-                                  (long long)total_ms, rss_kb);
+                      if (tuned) {
+                          const std::clock_t cpu_end = std::clock();
+                          const long long cpu_ms = cpu_begin != (std::clock_t)-1 && cpu_end != (std::clock_t)-1 && cpu_end >= cpu_begin
+                              ? (long long)(1000.0 * double(cpu_end-cpu_begin) / double(CLOCKS_PER_SEC)) : 0;
+                          // Process CPU time sums work across threads. It is NOT electrical
+                          // energy, a calibrated power reading, or a thermal-throttle proof.
+                          std::printf("WR_BRIDGE_MULTI_SUMMARY={\"segments\":%zu,\"model_loads\":1,"
+                                      "\"model_load_ms\":%lld,\"decoder_segments_wall_ms\":%lld,"
+                                      "\"rss_peak_kb\":%lld,\"mrope_parity_verified\":false,"
+                                      "\"decode_threads\":%d,\"batch_threads\":4,\"process_cpu_ms\":%lld}\n",
+                                      feature_paths.size(), (long long)model_load_ms,
+                                      (long long)total_ms, rss_kb, decode_threads, cpu_ms);
+                      } else {
+                          std::printf("WR_BRIDGE_MULTI_SUMMARY={\"segments\":%zu,\"model_loads\":1,"
+                                      "\"model_load_ms\":%lld,\"decoder_segments_wall_ms\":%lld,"
+                                      "\"rss_peak_kb\":%lld,\"mrope_parity_verified\":false}\n",
+                                      feature_paths.size(), (long long)model_load_ms,
+                                      (long long)total_ms, rss_kb);
+                      }
                   }
                   code = 0;
               } catch (const std::exception & ex) {
