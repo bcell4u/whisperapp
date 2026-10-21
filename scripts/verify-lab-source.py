@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.5\nversionName=6.6.5\nversionCode=66005\n',
-      '6.6.5 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.6\nversionName=6.6.6\nversionCode=66006\n',
+      '6.6.6 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.5 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.6 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -344,8 +344,11 @@ cpp = read('native/qwen_bridge/qwen_npu_llama_probe.cpp')
 for marker in ['WR_BRIDGE_PROBE_PROTOCOL_0496_DOTPROD_V1',
                'WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001', 'cp.n_ctx = 512',
                'llama_memory_clear(', 'cp.n_threads = decode_threads',
-               'model_loads\\":1', 'LLAMA_ROPE_TYPE_MROPE']:
+               'model_loads\\":1', 'LLAMA_ROPE_TYPE_MROPE',
+               'WR_QWEN_PROMPT_ROLE_8948_872_V1',
+               'prefix[] = {151644,8948,198,151645,198,151644,872,198,151669}']:
     check(marker in cpp, f'native protocol/performance contract missing: {marker}')
+check('WR_QWEN_PROMPT_ROLE_8948_872_V1' in read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWorkerService.kt'), 'worker does not check corrected native prompt protocol')
 cmake = read('native/qwen_bridge/CMakeLists.txt')
 check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
       'dot-product source configuration missing')
@@ -353,10 +356,10 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.5-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.6-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66005'",
-               "versionName='6.6.5-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66006'",
+               "versionName='6.6.6-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'scripts/test-qwen-prompt-contract.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
@@ -367,4 +370,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.5 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.6 source/workflow static gates (NOT an APK compile)')

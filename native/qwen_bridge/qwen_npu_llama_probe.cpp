@@ -40,6 +40,8 @@ static constexpr char MULTI_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0482_MULTI
 static constexpr char CPU_TUNE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0488_CPU_TUNE_V1";
 static constexpr char DUAL_TUNE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0492_DUAL_THREAD_V1";
 static constexpr char APP_PRIVATE_PROTOCOL_ID[] = "WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001";
+// Must appear in the signed APK native ELF and the on-device --probe-info output.
+static constexpr char PROMPT_ROLE_PROTOCOL_ID[] = "WR_QWEN_PROMPT_ROLE_8948_872_V1";
 
 static std::vector<float> read_audio(const char * name) {
     std::ifstream f(name, std::ios::binary | std::ios::ate);
@@ -72,9 +74,9 @@ int main(int argc, char ** argv) {
 #endif
     if (argc == 2 && std::string(argv[1]) == "--probe-info") {
 #if defined(WR_CPU_ARM_DOTPROD)
-        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"arm64_dotprod\",\"cpu_target_protocol\":\"%s\",\"app_private_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, ARM_DOTPROD_PROTOCOL_ID, APP_PRIVATE_PROTOCOL_ID);
+        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"arm64_dotprod\",\"cpu_target_protocol\":\"%s\",\"app_private_protocol\":\"%s\",\"prompt_role_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, ARM_DOTPROD_PROTOCOL_ID, APP_PRIVATE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID);
 #else
-        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"baseline_arm64\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID);
+        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"baseline_arm64\",\"prompt_role_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID);
 #endif
         return 0;
     }
@@ -159,7 +161,10 @@ int main(int argc, char ** argv) {
                 llama_batch_ext_clear(batch);
             }
             auto audio = read_audio(feature_paths[segment].c_str());
-        constexpr llama_token prefix[] = {151644,9125,198,151645,198,151644,882,198,151669};
+        // Official Qwen chat roles: system=8948, user=872. The older
+        // 9125/882 literals encoded different words and were not valid roles.
+        // This affects prompt construction only; the fast decoder is unchanged.
+        constexpr llama_token prefix[] = {151644,8948,198,151645,198,151644,872,198,151669};
         constexpr llama_token suffix[] = {151670,151645,198,151644,77091,198};
         int pos = 0;
         // Four-axis values actually supplied to llama.cpp. This is still the

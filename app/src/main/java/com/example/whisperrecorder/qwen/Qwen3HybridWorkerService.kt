@@ -112,7 +112,8 @@ class Qwen3HybridWorkerService : Service() {
             nativeProbe.inputStream.bufferedReader().use { it.readText().take(4096) }
         } finally { if (nativeProbe.isAlive) nativeProbe.destroyForcibly() }
         require(nativeProbe.exitValue() == 0 && probeText.contains("WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001") &&
-            probeText.contains("arm64_dotprod")) { "Native bridge protocol/CPU mismatch" }
+            probeText.contains("arm64_dotprod") &&
+            probeText.contains("WR_QWEN_PROMPT_ROLE_8948_872_V1")) { "Native bridge protocol/CPU mismatch" }
 
         val nativeDir = File(applicationInfo.nativeLibraryDir)
         val plugin = File(nativeDir, "libonnxruntime_providers_qnn.so")

@@ -1,4 +1,8 @@
-# Experimental Qwen GGUF Lab v6.6.5 (from clean v6.5.22)
+# 6.6.6 experimental prompt correction
+
+See `LAB_6_6_6_PROMPT_AUDIT.md` for the corrected Qwen `system` / `user` prompt tokens, safety gates, and one-run accuracy comparison. v6.6.5 remains the working baseline.
+
+# Experimental Qwen GGUF Lab v6.6.6 (from clean v6.5.22)
 
 **New in 6.6.5:** A synthetic-only **VERIFY DECODER** mode checks QNN feature determinism, native two-pass KV reset and decoder output reproducibility, and optional independent token-reference agreement. It exports synthetic FP32LE features to `Download/SFSU/Whisperapp/Verification` and writes token-free results to `Download/SFSU/Whisperapp/Logs`. It never claims M-RoPE/logit parity without authoritative numerical comparisons. See [LAB_6_6_5_DECODER_VERIFICATION.md](LAB_6_6_5_DECODER_VERIFICATION.md) for positive and negative outcomes and the one-run test plan. This source is not a locally compiled APK.
 
