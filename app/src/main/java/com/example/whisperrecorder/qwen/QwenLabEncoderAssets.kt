@@ -20,6 +20,8 @@ internal object QwenLabEncoderAssets {
         "golden-synthetic-mel-12s-f32.raw" to 614_400L..614_400L
     )
     private const val MANIFEST = "model-manifest.json"
+    private const val HF_ROOT =
+        "https://huggingface.co/drinnird/qwen3-asr-0.6b-snapdragon-sm8850-v81/resolve/main/"
     private val allowed = required.keys + MANIFEST
 
     fun directory(context: Context): File = File(context.filesDir, ROOT)
@@ -131,6 +133,41 @@ internal object QwenLabEncoderAssets {
                         zip.closeEntry()
                     }
                 }
+            }
+        }
+    }
+
+    /** Downloads only four necessary QNN assets + their manifest, not the ONNX decoder.
+     * The remote manifest SHA-256 values protect every large asset; the manifest itself
+     * arrives over HTTPS and should be pinned to a reviewed repository revision for
+     * long-term releases. Old verified encoder files remain until staging is valid.
+     */
+    fun downloadOfficial(
+        context: Context, cancelled: () -> Boolean, status: (String) -> Unit
+    ) {
+        importAtomically(context) { staging ->
+            val manifestFile = File(staging, MANIFEST)
+            // Small manifest gets bounded transfer. Its exact size can vary by revision.
+            QwenLabModelDownloader.downloadVariableSize(
+                HF_ROOT + MANIFEST, manifestFile, 3_000_000L, cancelled, status)
+            val manifest = JSONObject(manifestFile.readText(Charsets.UTF_8))
+            require(manifest.optString("model_id") == "Qwen/Qwen3-ASR-0.6B" &&
+                manifest.optString("validated_s26_model") == "SM-S942U" &&
+                manifest.optString("variant") == "0.6B") { "Encoder manifest is incompatible" }
+            val files = manifest.getJSONArray("files")
+            for ((name, range) in required) {
+                QwenLabModelDownloader.ensureActive(cancelled)
+                val item = (0 until files.length()).map { files.getJSONObject(it) }
+                    .singleOrNull { it.optString("path") == name }
+                    ?: error("Encoder manifest missing required model input")
+                val expectedSize = item.getLong("size_bytes")
+                val expectedSha = item.getString("sha256")
+                require(expectedSize in range && expectedSha.matches(Regex("[a-fA-F0-9]{64}"))) {
+                    "Encoder package size or digest invalid"
+                }
+                QwenLabModelDownloader.downloadFile(
+                    HF_ROOT + name, File(staging, name), expectedSize, expectedSha,
+                    name, cancelled, status)
             }
         }
     }

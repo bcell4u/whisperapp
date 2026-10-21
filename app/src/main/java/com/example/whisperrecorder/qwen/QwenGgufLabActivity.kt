@@ -37,6 +37,7 @@ class QwenGgufLabActivity : ComponentActivity() {
 
     private var activeClient: Qwen3HybridClient? = null
     private val busy = AtomicBoolean(false)
+    private val downloadCancelled = AtomicBoolean(false)
     private lateinit var output: TextView
     private lateinit var run: Button
     private val chooseModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -74,6 +75,14 @@ class QwenGgufLabActivity : ComponentActivity() {
                 "Encoder package and GGUF stay in this app's private storage. " +
                 "Native Android executable policy and transcript accuracy need phone validation."
         })
+        layout.addView(TextView(this).apply {
+            text = "Model setup: tap Download to fetch the S26 QNN encoder and Q8 GGUF " +
+                "directly from Hugging Face (~1.2 GB; Wi-Fi and adequate free storage recommended). " +
+                "No download starts without tapping the button. Existing imported files are reused " +
+                "when their checksums match. The Windows Builder may already have a Q8 GGUF " +
+                "you can transfer and select below. mmproj and ONNX decoder files are NOT required."
+        })
+        button("Download missing encoder + Q8 GGUF from Hugging Face") { downloadModels() }
         button("Import extracted QNN encoder folder") { chooseEncoderDirectory.launch(null) }
         button("Or import QNN encoder ZIP") { chooseEncoderZip.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
         button("Select Q8 GGUF model") { chooseModel.launch(arrayOf("application/octet-stream", "*/*")) }
@@ -83,15 +92,16 @@ class QwenGgufLabActivity : ComponentActivity() {
             setOnClickListener { startOnce() }
         }
         layout.addView(run)
-        button("Cancel current Lab session") {
+        button("Cancel download / Lab session") {
+            downloadCancelled.set(true)
             runCatching { activeClient?.cancelCurrent() }
-            showMessage("Cancellation requested; worker will clean up its own temporary features.")
+            showMessage("Cancellation requested. Only Lab-owned temporary files will be removed.")
         }
         output = TextView(this).apply {
             textSize = 15f
-            text = "Import your QNN encoder folder (or ZIP) containing encoder-qnn-fp16.bin, " +
-                "tokenizer.json and both golden synthetic fixtures. Then select Q8 GGUF " +
-                "and audio. No private model, recording or transcript is exported."
+            text = "Download the required encoder + Q8 GGUF above, or import your own " +
+                "compatible encoder folder/ZIP and Q8 GGUF. Then select lecture audio. " +
+                "The models remain private; the transcript is not uploaded."
             setTextIsSelectable(true)
         }
         layout.addView(output)
@@ -102,7 +112,7 @@ class QwenGgufLabActivity : ComponentActivity() {
         val selectedAudio = audioUri
         if (selectedAudio == null || (modelUri == null && !privateModel().isFile) ||
             !QwenLabEncoderAssets.present(this)) {
-            showMessage("Import the QNN encoder files, select a Q8 GGUF, and choose lecture audio first.")
+            showMessage("Download/import the QNN encoder and Q8 GGUF, then choose lecture audio first.")
             return
         }
         if (!busy.compareAndSet(false, true)) return
@@ -172,6 +182,30 @@ class QwenGgufLabActivity : ComponentActivity() {
             }
         }, "qwen-gguf-lab-session").start()
     }
+    private fun downloadModels() {
+        if (!busy.compareAndSet(false, true)) return
+        downloadCancelled.set(false)
+        run.isEnabled = false
+        Thread({
+            try {
+                QwenLabModelDownloader.downloadMissing(this,
+                    { downloadCancelled.get() || Thread.currentThread().isInterrupted },
+                    { message -> showMessage(message) })
+                showMessage("QNN encoder and Q8 decoder verified in private Lab storage. " +
+                    "Select lecture audio and tap TRANSCRIBE.")
+            } catch (_: InterruptedException) {
+                showMessage("Model download cancelled. Previously installed models remain available.")
+            } catch (_: Throwable) {
+                showMessage("Model setup failed. Check Wi-Fi, free storage and Hugging Face " +
+                    "availability, then retry. No incomplete model was activated. " +
+                    "You can still import existing model files manually.")
+            } finally {
+                busy.set(false)
+                runOnUiThread { run.isEnabled = true }
+            }
+        }, "qwen-gguf-model-download").start()
+    }
+
     private fun importEncoder(kind: String, import: () -> Unit) {
         if (!busy.compareAndSet(false, true)) return
         run.isEnabled = false
@@ -211,6 +245,7 @@ class QwenGgufLabActivity : ComponentActivity() {
         } finally { if (pending.exists()) pending.delete() }
     }
     override fun onDestroy() {
+        downloadCancelled.set(true)
         runCatching { activeClient?.cancelCurrent() }
         super.onDestroy()
     }
