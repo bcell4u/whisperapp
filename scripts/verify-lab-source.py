@@ -57,7 +57,51 @@ try:
 except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
-read('app/src/main/res/xml/lab_data_extraction_rules.xml')
+# Check the complete Android resources tree in one run. Earlier web-based
+# repository uploads omitted res/ entirely, causing a misleading one-file error.
+resource_root = root / 'app/src/main/res'
+expected_resources = [
+    'drawable/ic_arrow_back.xml',
+    'drawable/ic_edit.xml',
+    'drawable/ic_launcher_foreground.xml',
+    'drawable/ic_launcher_monochrome.xml',
+    'drawable/ic_notification_mic.xml',
+    'drawable/ic_notification_pause.xml',
+    'drawable/ic_notification_whisper.xml',
+    'drawable/ic_qwen_gguf_lab.xml',
+    'drawable/ic_settings.xml',
+    'drawable/ic_share_media.xml',
+    'drawable/ic_share_transcript.xml',
+    'drawable/ic_share_video.xml',
+    'mipmap-anydpi-v26/ic_launcher.xml',
+    'mipmap-anydpi-v26/ic_launcher_round.xml',
+    'mipmap-anydpi-v33/ic_launcher.xml',
+    'mipmap-anydpi-v33/ic_launcher_round.xml',
+    'values-night/themes.xml',
+    'values/colors.xml',
+    'values/strings.xml',
+    'values/themes.xml',
+    'xml/backup_rules.xml',
+    'xml/data_extraction_rules.xml',
+    'xml/file_paths.xml',
+    'xml/lab_data_extraction_rules.xml',
+]
+for relative in expected_resources:
+    path = f'app/src/main/res/{relative}'
+    contents = read(path)
+    if contents:
+        try:
+            ET.fromstring(contents)
+        except ET.ParseError as error:
+            errors.append(f'Invalid Android resource XML {path}: {error}')
+debug_label = read('app/src/debug/res/values/strings.xml')
+if debug_label:
+    try:
+        ET.fromstring(debug_label)
+    except ET.ParseError as error:
+        errors.append(f'Invalid debug labels XML: {error}')
+for relative in ['LOCAL_ASR_NOTICE.txt', 'PARAKEET_NOTICE.txt', 'SPEAKER_NOTICE.txt']:
+    read(f'app/src/main/assets/{relative}')
 aidl = read('app/src/main/aidl/com/example/whisperrecorder/qwen/IQwen3HybridService.aidl')
 for name in ['prepareGgufLab', 'encodeGgufLab', 'finishGgufLab', 'cancelCurrent', 'closeRuntime']:
     check(name in aidl, f'AIDL missing {name}')
