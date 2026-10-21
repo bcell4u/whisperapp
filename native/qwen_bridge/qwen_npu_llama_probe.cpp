@@ -117,7 +117,7 @@ int main(int argc, char ** argv) {
             const size_t slash = manifest.find_last_of('/');
             const std::string directory = slash == std::string::npos ? "" : manifest.substr(0, slash + 1);
             while (std::getline(list, line)) {
-                if (line.empty() || line.size() > 50 || feature_paths.size() >= 20 ||
+                if (line.empty() || line.size() > 50 || feature_paths.size() >= 24 ||
                     line.find("..") != std::string::npos ||
                     !std::all_of(line.begin(), line.end(), [](unsigned char c) {
                         return std::isalnum(c) || c == '.' || c == '-' || c == '_';

@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.1\nversionName=6.6.1\nversionCode=66001\n',
-      '6.6.1 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.3\nversionName=6.6.3\nversionCode=66003\n',
+      '6.6.3 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.1 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.3 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -114,8 +114,10 @@ app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWorkerService.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenGgufLabActivity.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabEncoderAssets.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabModelDownloader.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabPublicModels.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDiagnosticLog.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleaner.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcher.kt
 app/src/main/java/com/example/whisperrecorder/speaker/OfflineSpeakerService.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerAttribution.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerClusteringPolicy.kt
@@ -271,6 +273,14 @@ check('downloadOfficial' in encoder_assets and 'model-manifest.json' in encoder_
 check('Download missing encoder + Q8 GGUF from Hugging Face' in ui and
       'downloadCancelled.set(true)' in ui and 'downloadModels()' in ui,
       'Lab UI download/cancel action missing')
+public_source = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabPublicModels.kt')
+for marker in ['Download/SFSU/Whisperapp/Models/', 'MediaStore.Downloads',
+               'IS_PENDING', 'DocumentFile.fromTreeUri', 'QwenLabEncoderAssets.importFolder',
+               'QwenLabModelDownloader.DECODER_SHA256', 'backupVerified', 'restore(']:
+    check(marker in public_source, f'portable Models backup contract missing: {marker}')
+check('QwenLabPublicModels.backupVerified' in ui and 'QwenLabPublicModels.restore' in ui,
+      'Lab UI must offer model backup and restore')
+
 log_source = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDiagnosticLog.kt')
 cleaner = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleaner.kt')
 for marker in ['MediaStore.Downloads', 'MediaStore.MediaColumns.RELATIVE_PATH',
@@ -280,10 +290,25 @@ for marker in ['MediaStore.Downloads', 'MediaStore.MediaColumns.RELATIVE_PATH',
 check('transcript' not in log_source.split('private val numericMetrics =')[1].split('internal fun render')[0],
       'transcript might be included in diagnostic metrics allowlist')
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleanerTest.kt')
+read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcherTest.kt')
+read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabOverlapSegmentCountTest.kt')
 check('QwenLabTranscriptCleaner.cleanSegment' in worker and 'QwenLabDiagnosticLog.save' in ui,
       'transcript cleaning or automatic post-run log missing')
 check('language' in cleaner and '<asr_text>' in cleaner,
       'Qwen special-header cleanup missing')
+stitcher = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcher.kt')
+for marker in ['matchedCount', 'MAX_SEAM_WORDS', 'max downTo 2', 'overlapSeconds == 0']:
+    check(marker in stitcher, f'Overlap stitcher missing conservative gate: {marker}')
+check('source.open16kSegmentStream(12, overlapSeconds)' in ui and
+      'timedChunk.endMs - source.info.audioStartMs' in ui and
+      'overlapControl.isChecked' in ui,
+      'Lab 12s/1s overlap selection, actual PCM length gate, or UI missing')
+check('QwenLabTranscriptStitcher.stitch(cleanSegments, overlapSeconds)' in worker and
+      'segments < 24' in worker and 'segments in 2..24' in worker and
+      'feature_paths.size() >= 24' in read('native/qwen_bridge/qwen_npu_llama_probe.cpp'),
+      'Worker/native overlap stitching or max-segment cap not synchronized')
+check('overlap_seconds' in log_source and 'stitched_duplicate_words' in log_source,
+      'Privacy-safe numerical overlap diagnostics missing')
 check('http://' not in downloader and 'Runtime.getRuntime' not in downloader and
       'ProcessBuilder' not in downloader, 'Download path has insecure network or ADB/subprocess code')
 
@@ -300,10 +325,10 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.1-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.3-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66001'",
-               "versionName='6.6.1-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66003'",
+               "versionName='6.6.3-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
@@ -314,4 +339,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.1 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.3 source/workflow static gates (NOT an APK compile)')

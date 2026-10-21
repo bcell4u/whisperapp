@@ -27,8 +27,11 @@ internal class Qwen3HybridClient private constructor(private val app: Context) :
         override fun onBindingDied(name: ComponentName?) { remote = null; signal.countDown() }
         override fun onNullBinding(name: ComponentName?) { remote = null; signal.countDown() }
     }
-    fun prepareGgufLab(config: QwenDecoderRunConfig): JSONObject =
-        JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.prepareGgufLab(config.toJson()))
+    fun prepareGgufLab(config: QwenDecoderRunConfig, overlapSeconds: Int = 0): JSONObject {
+        require(overlapSeconds in 0..1)
+        val json = JSONObject(config.toJson()).put("overlap_seconds", overlapSeconds).toString()
+        return JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.prepareGgufLab(json))
+    }
     fun encodeGgufLab(pcm: SharedMemory, count: Int): JSONObject =
         JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.encodeGgufLab(pcm, count))
     fun finishGgufLab(): JSONObject =

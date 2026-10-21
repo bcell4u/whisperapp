@@ -118,3 +118,31 @@ Moves model inventory initialization and library/detail model-path checks off th
 concurrent model operations, scopes NPU staging cleanup to the selected model, and
 optimizes long-transcript cue partitioning. See `VERSIONING.md` for the change history.
 The existing signed release workflow remains authoritative for Android compilation.
+
+## Pending v6.6.2 model persistence update
+
+Version `6.6.2` (code `66002`) stages an uninstall-resistant backup under
+`Internal storage/Download/SFSU/Whisperapp/Models` for the downloaded QNN
+encoder and official Q8 GGUF. The Lab includes explicit **Back up verified
+models** and **Restore models from Downloads** actions. See
+`LAB_6_6_2_MODEL_PERSISTENCE.md` for details, privacy/storage caveats and the
+stable-signing requirement. This is source staged for a future CI build, NOT a
+compiled or phone-tested v6.6.2 APK.
+
+
+## Staged v6.6.3: optional one-second overlap accuracy experiment
+
+Version `6.6.3` (code `66003`) retains the v6.6.2 public Downloads model backup
+and 6.6.1 automatic privacy-safe diagnostic logs. The Lab UI enables a **one-second
+overlap** checkbox by default; uncheck to reproduce the original 12-second,
+zero-overlap segment path. Both paths use the identical QNN encoder and v0.4.96
+four-thread ARM64 dot-product Q8_0 decoder. No model or quantization change.
+
+After inference, an exact whole-word seam matcher drops duplicated phrases only
+when two or more words match at the boundary; uncertain cases remain visible.
+The Results screen and the automatic log record `overlap_seconds`,
+`stitched_duplicate_words`, `stitched_boundaries`, and `unmatched_boundaries`
+without logging audio, spoken words, transcripts, or private paths. Processing
+longer than 12 seconds is still segmented, and the four-minute cap remains.
+This is an **unvalidated accuracy experiment**, not a proven accuracy gain. See
+`LAB_6_6_3_OVERLAP.md` for the design and one-run evaluation instructions.

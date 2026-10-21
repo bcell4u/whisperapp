@@ -37,7 +37,8 @@ internal object QwenLabDiagnosticLog {
     private val numericMetrics = listOf(
         "segments", "model_loads", "preprocess_ms", "encoder_ms",
         "model_load_ms", "decoder_ms", "decoder_segments_wall_ms",
-        "generated_tokens", "eos_segments", "native_rss_peak_kb", "native_cpu_ms"
+        "generated_tokens", "eos_segments", "native_rss_peak_kb", "native_cpu_ms",
+        "overlap_seconds", "stitched_duplicate_words", "stitched_boundaries", "unmatched_boundaries"
     )
 
     internal fun render(report: RunReport): String = buildString {
@@ -49,7 +50,7 @@ internal object QwenLabDiagnosticLog {
         appendLine("status=${report.status.name}")
         appendLine("last_phase=${report.phase.name}")
         appendLine("attempt_elapsed_ms=${report.elapsedMs.coerceAtLeast(0)}")
-        appendLine("encoded_segments=${report.encodedSegments.coerceIn(0, 20)}")
+        appendLine("encoded_segments=${report.encodedSegments.coerceIn(0, 24)}")
         report.errorClass?.let {
             appendLine("error_class=${it.take(64).filter { c -> c.isLetterOrDigit() || c == '_' }}")
         }

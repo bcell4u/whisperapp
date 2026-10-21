@@ -6,6 +6,7 @@ import android.os.SharedMemory
 import android.system.OsConstants
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -34,12 +35,16 @@ class QwenGgufLabActivity : ComponentActivity() {
     private val chooseEncoderZip = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importEncoder("ZIP") { QwenLabEncoderAssets.importZip(this, uri) }
     }
+    private val chooseSavedModels = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) restoreSavedModels(uri)
+    }
 
     private var activeClient: Qwen3HybridClient? = null
     private val busy = AtomicBoolean(false)
     private val downloadCancelled = AtomicBoolean(false)
     private lateinit var output: TextView
     private lateinit var run: Button
+    private lateinit var overlapControl: CheckBox
     private val chooseModel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && !busy.get()) {
             modelUri = uri
@@ -72,21 +77,29 @@ class QwenGgufLabActivity : ComponentActivity() {
         layout.addView(TextView(this).apply {
             text = "Experimental S26 SM-S942U · genuine QNN/HTP encoder + 4-thread " +
                 "Q8_0 llama.cpp dot-product decoder. 12 s chunks, at most 240 s. " +
-                "Encoder package and GGUF stay in this app's private storage. " +
-                "Native Android executable policy and transcript accuracy need phone validation."
+                "Transcription uses private model copies. After model setup, a verified backup " +
+                "can also be saved under Download/SFSU/Whisperapp/Models to survive uninstall."
         })
         layout.addView(TextView(this).apply {
             text = "Model setup: tap Download to fetch the S26 QNN encoder and Q8 GGUF " +
                 "directly from Hugging Face (~1.2 GB; Wi-Fi and adequate free storage recommended). " +
                 "No download starts without tapping the button. Existing imported files are reused " +
                 "when their checksums match. The Windows Builder may already have a Q8 GGUF " +
-                "you can transfer and select below. mmproj and ONNX decoder files are NOT required."
+                "you can transfer and select below. mmproj and ONNX decoder files are NOT required. " +
+                "A second saved copy uses about 1.2 GB of additional storage."
         })
         button("Download missing encoder + Q8 GGUF from Hugging Face") { downloadModels() }
+        button("Back up verified models to Downloads / SFSU / Whisperapp / Models") { backupModels() }
+        button("Restore models from Downloads after reinstall") { chooseSavedModels.launch(null) }
         button("Import extracted QNN encoder folder") { chooseEncoderDirectory.launch(null) }
         button("Or import QNN encoder ZIP") { chooseEncoderZip.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
         button("Select Q8 GGUF model") { chooseModel.launch(arrayOf("application/octet-stream", "*/*")) }
         button("Select lecture audio (up to 4 min)") { chooseAudio.launch(arrayOf("audio/*", "video/*")) }
+        overlapControl = CheckBox(this).apply {
+            text = "Experimental: overlap segments by 1 second (may improve words at boundaries; slower)"
+            isChecked = true
+        }
+        layout.addView(overlapControl)
         run = Button(this).apply {
             text = "TRANSCRIBE once with on-device QNN + GGUF"
             setOnClickListener { startOnce() }
@@ -101,8 +114,9 @@ class QwenGgufLabActivity : ComponentActivity() {
             textSize = 15f
             text = "Download the required encoder + Q8 GGUF above, or import your own " +
                 "compatible encoder folder/ZIP and Q8 GGUF. Then select lecture audio. " +
-                "The models remain private; the transcript is not uploaded. " +
-                "After each attempt, a diagnostics-only log is saved to Download/SFSU/Whisperapp/Logs."
+                "After downloading models, a verified copy is also saved to Downloads. " +
+                "After reinstall, choose Restore models and select the Models subfolder. " +
+                "The transcript is not uploaded. Diagnostic logs save under Download/SFSU/Whisperapp/Logs."
             setTextIsSelectable(true)
         }
         layout.addView(output)
@@ -118,6 +132,8 @@ class QwenGgufLabActivity : ComponentActivity() {
         }
         if (!busy.compareAndSet(false, true)) return
         run.isEnabled = false
+        overlapControl.isEnabled = false
+        val overlapSeconds = if (overlapControl.isChecked) 1 else 0
         downloadCancelled.set(false)
         Thread({
             val attemptStartedEpochMs = System.currentTimeMillis()
@@ -137,7 +153,7 @@ class QwenGgufLabActivity : ComponentActivity() {
                     activeClient = client
                     phase = QwenLabDiagnosticLog.Phase.PREPARE
                     val config = QwenDecoderRunConfig(4, false, false, false)
-                    val prepared = client.prepareGgufLab(config)
+                    val prepared = client.prepareGgufLab(config, overlapSeconds)
                     check(prepared.optBoolean("ok")) { "QNN/GGUF prepare failed: ${prepared.optString("error").take(160)}" }
                     val audio = requireNotNull(selectedAudio)
                     phase = QwenLabDiagnosticLog.Phase.DECODE_AUDIO
@@ -146,12 +162,18 @@ class QwenGgufLabActivity : ComponentActivity() {
                         require(source.info.durationMs <= 0L || source.info.durationMs <= 240_000L) {
                             "Lab accepts at most 240 seconds of audio"
                         }
-                        source.open16kSegmentStream(12).use { stream ->
+                        source.open16kSegmentStream(12, overlapSeconds).use { stream ->
                             var segments = 0
                             while (stream.hasNext()) {
                                 check(!downloadCancelled.get()) { "Lab cancelled" }
-                                check(segments < 20) { "More than twenty segments is not supported" }
-                                val chunk = stream.next().samples
+                                check(segments < 24) { "More than 24 segments is not supported" }
+                                val timedChunk = stream.next()
+                                // Metadata may omit duration. Check actual decoded audio coverage, not
+                                // cumulative overlapped samples (which intentionally repeat audio).
+                                require(timedChunk.endMs - source.info.audioStartMs <= 240_050L) {
+                                    "Lab accepts at most 240 seconds of decoded audio"
+                                }
+                                val chunk = timedChunk.samples
                                 phase = QwenLabDiagnosticLog.Phase.ENCODE_QNN
                                 SharedMemory.create("qwen-gguf-lab-pcm", chunk.size * 4).use { shared ->
                                     val writable = shared.mapReadWrite().order(ByteOrder.nativeOrder())
@@ -167,7 +189,7 @@ class QwenGgufLabActivity : ComponentActivity() {
                                 completedSegments = segments
                                 showMessage("QNN encoded $segments audio segments. Decoder model loads only once at the end.")
                             }
-                            require(segments in 2..20)
+                            require(segments in 2..24)
                         }
                     }
                     check(!downloadCancelled.get()) { "Lab cancelled" }
@@ -180,6 +202,9 @@ class QwenGgufLabActivity : ComponentActivity() {
                     showMessage(buildString {
                         append("ON-DEVICE EXPERIMENTAL QNN + DOTPROD Q8 GGUF\n\n")
                         append("Segments: ${result.optInt("segments")}; model loads: ${result.optInt("model_loads")}\n")
+                        append("Overlap: ${result.optInt("overlap_seconds")} s; stitched boundaries: " +
+                            "${result.optInt("stitched_boundaries")}; duplicate words removed: " +
+                            "${result.optInt("stitched_duplicate_words")}\n")
                         append("Preprocess: ${result.optLong("preprocess_ms")} ms; QNN encode: ${result.optLong("encoder_ms")} ms\n")
                         append("Native model load: ${result.optLong("model_load_ms")} ms; decoder: ${result.optLong("decoder_ms")} ms\n")
                         append("Tokens: ${result.optInt("generated_tokens")}; EOS segments: ${result.optInt("eos_segments")}\n")
@@ -216,7 +241,7 @@ class QwenGgufLabActivity : ComponentActivity() {
                 }
                 activeClient = null
                 busy.set(false)
-                runOnUiThread { run.isEnabled = true }
+                runOnUiThread { run.isEnabled = true; overlapControl.isEnabled = true }
             }
         }, "qwen-gguf-lab-session").start()
     }
@@ -229,8 +254,19 @@ class QwenGgufLabActivity : ComponentActivity() {
                 QwenLabModelDownloader.downloadMissing(this,
                     { downloadCancelled.get() || Thread.currentThread().isInterrupted },
                     { message -> showMessage(message) })
-                showMessage("QNN encoder and Q8 decoder verified in private Lab storage. " +
-                    "Select lecture audio and tap TRANSCRIBE.")
+                val backup = runCatching {
+                    QwenLabPublicModels.backupVerified(this,
+                        { downloadCancelled.get() || Thread.currentThread().isInterrupted },
+                        { message -> showMessage(message) })
+                }
+                showMessage(if (backup.isSuccess) {
+                    "Models verified and saved to Download/SFSU/Whisperapp/Models. " +
+                        "Choose audio and tap TRANSCRIBE."
+                } else {
+                    "Models verified in private Lab storage, but the Downloads backup failed " +
+                        "(${backup.exceptionOrNull()?.javaClass?.simpleName}). " +
+                        "Use Back up verified models before uninstalling."
+                })
             } catch (_: InterruptedException) {
                 showMessage("Model download cancelled. Previously installed models remain available.")
             } catch (_: Throwable) {
@@ -239,9 +275,56 @@ class QwenGgufLabActivity : ComponentActivity() {
                     "You can still import existing model files manually.")
             } finally {
                 busy.set(false)
-                runOnUiThread { run.isEnabled = true }
+                runOnUiThread { run.isEnabled = true; overlapControl.isEnabled = true }
             }
         }, "qwen-gguf-model-download").start()
+    }
+
+    private fun backupModels() {
+        if (!busy.compareAndSet(false, true)) return
+        downloadCancelled.set(false)
+        run.isEnabled = false
+        Thread({
+            try {
+                QwenLabPublicModels.backupVerified(this,
+                    { downloadCancelled.get() || Thread.currentThread().isInterrupted },
+                    { message -> showMessage(message) })
+                showMessage("Backup complete: Internal storage/Download/SFSU/Whisperapp/Models. " +
+                    "Keep these files when uninstalling the app.")
+            } catch (_: InterruptedException) {
+                showMessage("Backup cancelled; verified private models remain unchanged.")
+            } catch (t: Throwable) {
+                showMessage("Model backup failed (${t.javaClass.simpleName}); private models are unchanged. " +
+                    "Check free storage (about 1.2 GB), then retry.")
+            } finally {
+                busy.set(false)
+                runOnUiThread { run.isEnabled = true; overlapControl.isEnabled = true }
+            }
+        }, "qwen-gguf-model-backup").start()
+    }
+
+    private fun restoreSavedModels(uri: Uri) {
+        if (!busy.compareAndSet(false, true)) return
+        downloadCancelled.set(false)
+        run.isEnabled = false
+        Thread({
+            try {
+                QwenLabPublicModels.restore(this, uri,
+                    { downloadCancelled.get() || Thread.currentThread().isInterrupted },
+                    { message -> showMessage(message) })
+                showMessage("Models restored from Downloads and verified. " +
+                    "Select lecture audio and tap TRANSCRIBE; no download needed.")
+            } catch (_: InterruptedException) {
+                showMessage("Model restoration cancelled. Existing private model files remain.")
+            } catch (t: Throwable) {
+                showMessage("Restore failed (${t.javaClass.simpleName}). " +
+                    "Select Internal storage/Download/SFSU/Whisperapp/Models " +
+                    "containing all six verified model files.")
+            } finally {
+                busy.set(false)
+                runOnUiThread { run.isEnabled = true; overlapControl.isEnabled = true }
+            }
+        }, "qwen-gguf-model-restore").start()
     }
 
     private fun importEncoder(kind: String, import: () -> Unit) {
@@ -257,7 +340,7 @@ class QwenGgufLabActivity : ComponentActivity() {
                     "with the two golden fixtures; any previously imported model is retained.")
             } finally {
                 busy.set(false)
-                runOnUiThread { run.isEnabled = true }
+                runOnUiThread { run.isEnabled = true; overlapControl.isEnabled = true }
             }
         }, "qwen-gguf-encoder-import").start()
     }

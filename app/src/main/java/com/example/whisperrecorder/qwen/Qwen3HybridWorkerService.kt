@@ -37,6 +37,7 @@ class Qwen3HybridWorkerService : Service() {
     private var segments = 0
     private var preprocessMs = 0L
     private var qnnMs = 0L
+    private var overlapSeconds = 0
 
     // Binder transactions may arrive on distinct threads. Never run multiple encoder commands at once.
     private val binder = object : IQwen3HybridService.Stub() {
@@ -45,8 +46,13 @@ class Qwen3HybridWorkerService : Service() {
                 closeRuntimeInternal()
                 cancelRequested = false
                 // Only pinned four-thread, 512-context Q8 path. No performance-policy switches.
-                require(JSONObject(configJson).getInt("threads") == 4) { "Lab decoder requires 4 threads" }
-                prepareEncoder()
+                val config = JSONObject(configJson)
+                require(config.getInt("threads") == 4) { "Lab decoder requires 4 threads" }
+                val requestedOverlap = config.optInt("overlap_seconds", 0)
+                require(requestedOverlap in 0..1) { "Lab overlap must be 0 or 1 second" }
+                val prepared = prepareEncoder()
+                overlapSeconds = requestedOverlap
+                prepared
             }
         }
         override fun encodeGgufLab(pcm: SharedMemory, sampleCount: Int): String = report("encode") {
@@ -176,7 +182,7 @@ class Qwen3HybridWorkerService : Service() {
         check(!cancelRequested) { "Lab cancelled" }
         val session = requireNotNull(encoder) { "Encoder not prepared" }
         val dir = requireNotNull(scratch)
-        require(segments < 20) { "Maximum twenty segments" }
+        require(segments < 24) { "Maximum 24 segments" }
         val startMel = SystemClock.elapsedRealtime()
         val mel = Qwen3Mel.compute(samples) { cancelRequested }
         preprocessMs += SystemClock.elapsedRealtime() - startMel
@@ -205,7 +211,7 @@ class Qwen3HybridWorkerService : Service() {
 
     private fun finish(): JSONObject {
         val dir = requireNotNull(scratch) { "Lab session missing" }
-        require(segments in 2..20) { "Expected 2..20 QNN segments" }
+        require(segments in 2..24) { "Expected 2..24 QNN segments" }
         val native = File(applicationInfo.nativeLibraryDir, "libwrqwengguflab.so")
         val gguf = File(filesDir, "qwen-gguf-lab-models/decoder-q8.gguf")
         val manifest = File(dir, "features.lst")
@@ -264,10 +270,15 @@ class Qwen3HybridWorkerService : Service() {
             require(stats.getInt("segments") == segments && stats.getInt("model_loads") == 1)
             require(tokens.size == segments && eos == segments) { "Native EOS/token receipts incomplete" }
             val tokenizer = Qwen3ByteTokenizer.load(File(QwenLabEncoderAssets.directory(this), "tokenizer.json"))
-            val transcript = (0 until segments).joinToString(" ") { index ->
+            val cleanSegments = (0 until segments).map { index ->
                 QwenLabTranscriptCleaner.cleanSegment(tokenizer.decode(tokens.getValue(index)))
-            }.trim()
-            return JSONObject().put("transcript", transcript)
+            }
+            val stitched = QwenLabTranscriptStitcher.stitch(cleanSegments, overlapSeconds)
+            return JSONObject().put("transcript", stitched.transcript)
+                .put("overlap_seconds", overlapSeconds)
+                .put("stitched_duplicate_words", stitched.removedDuplicateWords)
+                .put("stitched_boundaries", stitched.stitchedBoundaries)
+                .put("unmatched_boundaries", stitched.unmatchedBoundaries)
                 .put("segments", segments).put("model_loads", stats.getInt("model_loads"))
                 .put("model_load_ms", stats.optLong("model_load_ms"))
                 .put("preprocess_ms", preprocessMs).put("encoder_ms", qnnMs)
@@ -297,6 +308,7 @@ class Qwen3HybridWorkerService : Service() {
         env = null // ORT environment is process-global; do not close other users' instance.
         scratch?.let { require(it.deleteRecursively() && !it.exists()) { "Lab cache cleanup failed" } }
         scratch = null
+        overlapSeconds = 0
         // In case binder process crashed during an earlier run, clear only this worker's cache.
     }
 }
