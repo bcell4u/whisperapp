@@ -30,6 +30,11 @@ production-ready app or a tested APK.
    commit **the contents of this directory to repository root** on the `main` branch.
    Do not nest everything inside a second folder. Do not copy this repository's
    original 6.5.22 `.github/workflows/build.yml`: it is purposely absent.
+   **Already using an existing GitHub repository?** The old `build.yml` must be
+   removed **from that repository**; merely uploading the new source ZIP does not
+   delete files already tracked by Git. Run `bash scripts/activate-lab-workflow.sh`
+   after copying the Lab source, or delete `.github/workflows/build.yml` through
+   the GitHub web editor. See `LAB_GITHUB_MIGRATION.md` for the exact one-file fix.
 2. Make sure repository Actions have permission to create Releases: GitHub
    Settings -> Actions -> General -> Workflow permissions -> **Read and write**
    (or grant equivalent permissions through the organization's policy). The

@@ -1,5 +1,7 @@
 # Experimental Qwen GGUF Lab v6.6.0 (from clean v6.5.22)
 
+**Existing GitHub repository migration:** If `.github/workflows/build.yml` remains from production, remove it with `bash scripts/activate-lab-workflow.sh` in a Git clone/Codespaces checkout (or delete the file in GitHub's web editor). See [LAB_GITHUB_MIGRATION.md](LAB_GITHUB_MIGRATION.md). This prevents the production build from running instead of the new Lab auto-release workflow.
+
 **This repository is a separately installable, not-yet-compiled Android source candidate.** See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md) for setup, automatic GitHub prereleases, original signing-secret compatibility, required user-supplied models, and unverified Android/phone gates. The documentation below describes the unchanged production v6.5.22 baseline rather than the experimental launcher.
 
 ---

@@ -25,8 +25,11 @@ jobs:
       - name: Verify lab rebase and 6.6 metadata
         run: |
           set -euo pipefail
+          if [ -e .github/workflows/build.yml ]; then
+            echo '::error file=.github/workflows/build.yml::The old production build workflow must be deleted from this Lab repo. See LAB_GITHUB_MIGRATION.md.'
+            exit 1
+          fi
           python3 scripts/verify-lab-source.py
-          test ! -e .github/workflows/build.yml
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
