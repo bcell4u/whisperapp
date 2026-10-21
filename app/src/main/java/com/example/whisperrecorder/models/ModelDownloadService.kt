@@ -14,7 +14,6 @@ import com.example.whisperrecorder.R
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
-import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +75,7 @@ class ModelDownloadService : Service() {
                 // Existing model downloads keep their current behavior. The large NPU package opts
                 // into redelivery so Android can restart the same manifest-driven repair/resume
                 // operation after an unexpected service-process kill.
-                return if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID || target.id == Qwen3HybridPackageStore.DOWNLOAD_ID) START_REDELIVER_INTENT else START_NOT_STICKY
+                return if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID) START_REDELIVER_INTENT else START_NOT_STICKY
             }
         }
         return START_NOT_STICKY
@@ -99,13 +98,6 @@ class ModelDownloadService : Service() {
                     onArchiving = archive,
                     isCancelled = cancelled
                 ).absolutePath
-            }
-        }
-
-        if (modelId == Qwen3HybridPackageStore.DOWNLOAD_ID) {
-            return DownloadTarget(Qwen3HybridPackageStore.DOWNLOAD_ID, Qwen3HybridPackageStore.DISPLAY_NAME) { progress, _, _, cancelled ->
-                Qwen3HybridPackageStore.installOrRepair(this, cancelled, progress)
-                Qwen3HybridPackageStore.folder(this).absolutePath
             }
         }
 
@@ -183,12 +175,12 @@ class ModelDownloadService : Service() {
                 ModelDownloadRuntime.completed(target.id, target.name, completedPath)
             } catch (_: CancellationException) {
                 ModelDownloadRuntime.cancelled(target.id, target.name)
-                if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID || target.id == Qwen3HybridPackageStore.DOWNLOAD_ID) {
+                if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID) {
                     DiagnosticLogger.append(this@ModelDownloadService, "model=${target.id} install/repair cancelled; verified files retained")
                 }
             } catch (t: Throwable) {
                 ModelDownloadRuntime.failed(target.id, target.name, t.message ?: t.javaClass.simpleName)
-                if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID || target.id == Qwen3HybridPackageStore.DOWNLOAD_ID) {
+                if (target.id == NpuPackageStore.DOWNLOAD_ID || target.id == OmiNpuPackageStore.DOWNLOAD_ID) {
                     DiagnosticLogger.appendError(this@ModelDownloadService, "npu-package-download model=${target.id}", t)
                 }
             } finally {

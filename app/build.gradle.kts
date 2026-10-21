@@ -13,6 +13,11 @@ val appReleaseVersion = requireNotNull(versionProperties.getProperty("releaseVer
 val appVersionName = requireNotNull(versionProperties.getProperty("versionName"))
 val appVersionCode = requireNotNull(versionProperties.getProperty("versionCode")).toInt()
 
+// Distinct experimental signing; no production key is supplied to the lab CI.
+val labStorePath = providers.environmentVariable("WR_LAB_STORE_FILE").orNull.orEmpty()
+val labStorePass = providers.environmentVariable("WR_LAB_STORE_PASSWORD").orNull
+val labKeyAlias = providers.environmentVariable("WR_LAB_KEY_ALIAS").orNull
+val labKeyPass = providers.environmentVariable("WR_LAB_KEY_PASSWORD").orNull
 val releaseStoreFile = providers.environmentVariable("WHISPER_RELEASE_STORE_FILE").orNull
 val releaseStorePassword = providers.environmentVariable("WHISPER_RELEASE_STORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("WHISPER_RELEASE_KEY_ALIAS").orNull
@@ -32,7 +37,8 @@ android {
     defaultConfig {
         resValue("string", "app_release_version", "v$appReleaseVersion")
         resValue("string", "app_version_name", appVersionName)
-        applicationId = "com.example.whisperrecorder"
+        applicationId = "com.example.whisperrecorder.qwengguflab"
+        buildConfigField("boolean", "QWEN_GGUF_LAB", "true")
         minSdk = 29
         targetSdk = 35
         versionCode = appVersionCode
@@ -53,6 +59,16 @@ android {
     }
 
     signingConfigs {
+        if (labStorePath.isNotBlank()) {
+            create("labDebug") {
+                storeFile = file(labStorePath)
+                storePassword = requireNotNull(labStorePass)
+                keyAlias = requireNotNull(labKeyAlias)
+                keyPassword = requireNotNull(labKeyPass)
+                enableV1Signing = false
+                enableV2Signing = true
+            }
+        }
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = file(requireNotNull(releaseStoreFile))
@@ -67,6 +83,8 @@ android {
 
     buildTypes {
         debug {
+            // Optional STABLE lab-only key provided by workflow secret; never production signing.
+            if (labStorePath.isNotBlank()) signingConfig = signingConfigs.getByName("labDebug")
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
             isMinifyEnabled = true
@@ -86,6 +104,7 @@ android {
     buildFeatures {
         compose = true
         aidl = true
+        buildConfig = true
     }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.15" }
 
@@ -105,6 +124,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += setOf("**/libwrqwengguflab.so")
             // Native ASR modules share the Android C++ runtime. Keep one compatible copy.
             pickFirsts += setOf("**/libc++_shared.so")
             excludes += setOf("**/libOpenCL.so", "**/libOpenCL.so.*")
@@ -118,6 +138,7 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -130,7 +151,4 @@ dependencies {
     // Downloaded and SHA-256 verified by GitHub Actions. Model weights are never bundled.
     implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     testImplementation("junit:junit:4.13.2")
-    // JVM unit tests do not have a functional Android org.json implementation.
-    // Use real JSONObject strictly in tests; Android runtime JSON stays unchanged.
-    testImplementation("org.json:json:20240303")
 }

@@ -59,11 +59,21 @@ only after downloaded files and archived copies are verified. Interrupted downlo
 retain partial files for resumption. Changing the manually selected ASR backend is
 out of scope.
 
-The historical diagnostic-only **Omi compatibility test** was retired in v6.5.40.
-Omi's normal Qualcomm NPU transcription still uses its verified archive manifest,
-compiled context contracts, and existing model-loading and worker runtime.
-The original experimental Omi encoder numerical qualification caveat remains in effect.
-Automatic transcription failure ZIPs and worker logs remain available in Diagnostics.
+Settings → Diagnostics → **Omi Med NPU compatibility (experimental)** runs an
+on-phone ORT-QNN **context-loading and synthetic inference test only**, directly
+from the installed package. The default probe tests `joint.bin` and
+`predictor.bin`; **Include 1.2 GB encoder** adds `encoder.bin` to the test. The
+previous manual SAF folder picker has been removed.
+
+The probe uses exact QNN 2.50 / Hexagon V81 compiled graph names and FP32 interfaces
+from `qnn-context-binary-utility` metadata. It verifies the published SHA-256,
+tries descriptor/resolved-path loading first, and stages a single context
+transiently if ORT cannot reopen the SAF descriptor. It reports the per-graph
+failure stage, stack trace, QNN load attempts, output validity, latency, and worker
+logs. CPU neural fallback is disabled. A PASS does not prove ASR correctness:
+**the experimental Omi encoder previously failed its FP16 numerical acceptance
+gate**, and clinical transcript accuracy has not been qualified. The existing
+Parakeet NPU and Omi OpenCL production backends are unchanged.
 
 ## Historical Omi NPU transcription (v6.5.17)
 

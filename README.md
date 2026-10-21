@@ -1,6 +1,12 @@
+# Experimental Qwen GGUF Lab v6.6.0 (from clean v6.5.22)
+
+**This repository is a separately installable, not-yet-compiled Android source candidate.** See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md) for setup, automatic GitHub prereleases, original signing-secret compatibility, required user-supplied models, and unverified Android/phone gates. The documentation below describes the unchanged production v6.5.22 baseline rather than the experimental launcher.
+
+---
+
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.43**, Android `versionCode=65043`. See [RELEASE-v6.5.43.md](RELEASE-v6.5.43.md) for the weight-prepacking and KV-cache memory experiment; [RELEASE-v6.5.42.md](RELEASE-v6.5.42.md) documents the JVM JSON test fix; [RELEASE-v6.5.41.md](RELEASE-v6.5.41.md) documents the diagnostics-screen Kotlin compile fix, and [RELEASE-v6.5.40.md](RELEASE-v6.5.40.md) documents the retired Omi probe cleanup. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.5.22**, Android `versionCode=65022`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -99,38 +105,3 @@ Moves model inventory initialization and library/detail model-path checks off th
 concurrent model operations, scopes NPU staging cleanup to the selected model, and
 optimizes long-transcript cue partitioning. See `VERSIONING.md` for the change history.
 The existing signed release workflow remains authoritative for Android compilation.
-
-
-## v6.5.34 — diagnostics-first hybrid redevelopment
-
-This source release is based on the known-good v6.5.22 app. It adds bounded, local,
-automatically produced diagnostic ZIP archives after transcription success/failure/cancellation,
-with structured per-chunk execution durations, app/device/thermal/memory metadata, and
-exception stack symbols. Settings > Diagnostics can create, share, individually delete or
-clear these ZIPs. Source files, model weights, audio, transcripts, token values, and user
-paths are excluded. Only the app-owned private diagnostics/reports folder is pruned.
-
-This phase **does not yet include** the experimental Qwen3-ASR-0.6B hybrid loader, FP16
-embedding lookup, new model conversion, NPU context recompilation, or a demonstrated
-transcription speedup. The existing Qwen CPU, Parakeet and Omi backends are preserved. The
-previously verified non-regressing progress policy from v6.5.29 is carried forward.
-Full Android CI compilation and Galaxy S26 regression tests are still required.
-
-**Upgrade warning:** Do not install this v6.5.34 clean-baseline release build over an
-existing v6.5.32 Qwen-hybrid installation yet. The experimental 0.6B backend is
-intentionally absent in this phase. Use the `.dev` debug variant for isolated tests,
-or wait until the hybrid is reinstated and validated.
-
-## v6.5.35 — Diagnostic ZIP output in shared Logs directory
-
-Diagnostic ZIPs now publish to the existing user-selected `Whisperapp/Logs` folder.
-Reports are first completed privately, then copied and SHA-256 verified before the
-private staging copy is discarded. SAF errors retain the ZIP as a private fallback.
-Existing private reports remain visible in Settings > Diagnostics and can still be
-shared/deleted. Debug and release ZIP naming is isolated to avoid cross-app pruning
-of shared Logs. Other existing text/error logs and model folders remain unchanged.
-This development baseline still excludes the experimental Qwen 0.6B hybrid.
-
-
-## v6.5.40 Qwen memory and configuration tests
-See `RELEASE-v6.5.40.md`. CPU arena experiment is opt-in; settings are passed explicitly to :qwen via AIDL.

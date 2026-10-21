@@ -42,7 +42,6 @@ internal object AsrSessionFactory {
         AsrEngine.PARAKEET_NPU -> NpuParakeetSession(context)
         AsrEngine.OMI_NPU -> OmiNpuSession(context)
         AsrEngine.QWEN3 -> TranscribeCppSession(modelPath, threads)
-        AsrEngine.QWEN3_HYBRID -> Qwen3HybridSession(context)
     }
 }
 

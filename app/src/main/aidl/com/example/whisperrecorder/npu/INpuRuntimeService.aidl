@@ -5,6 +5,7 @@ import android.os.SharedMemory;
 /** Persistent ORT-QNN runtime bridge used by normal NPU transcription. */
 interface INpuRuntimeService {
     String bootstrap();
+    String probeOmiContexts(boolean includeEncoder);
     String prepareRuntime();
     String prepareOmiRuntime();
     String transcribeOmiChunk(in SharedMemory pcm, int sampleCount, long audioDurationMs);

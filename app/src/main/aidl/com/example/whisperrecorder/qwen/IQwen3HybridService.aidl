@@ -1,9 +1,9 @@
 package com.example.whisperrecorder.qwen;
 import android.os.SharedMemory;
-/** Dedicated experimental worker, separate from Parakeet/Omi NPU service. */
 interface IQwen3HybridService {
-    String prepare(String configJson);
-    String transcribe(in SharedMemory pcm, int sampleCount);
+    String prepareGgufLab(String configJson);
+    String encodeGgufLab(in SharedMemory pcm, int sampleCount);
+    String finishGgufLab();
     void cancelCurrent();
     void closeRuntime();
 }

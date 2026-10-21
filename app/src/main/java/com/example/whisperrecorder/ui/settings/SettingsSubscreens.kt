@@ -27,13 +27,11 @@ import com.example.whisperrecorder.speaker.SpeakerModels
 import com.example.whisperrecorder.ui.SpeakerCountPicker
 import com.example.whisperrecorder.data.AppPrefs
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
-import com.example.whisperrecorder.diagnostics.DiagnosticReports
-import android.content.Intent
 import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
-import com.example.whisperrecorder.npu.Qwen3HybridPackageStore
+import com.example.whisperrecorder.npu.NpuRuntimeClient
 import com.example.whisperrecorder.ui.AudioFormatCard
 import com.example.whisperrecorder.ui.BackArrowButton
 import com.example.whisperrecorder.ui.SectionLabel
@@ -81,11 +79,10 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val localInstalled = localModel?.let { LocalAsrModelManager.isInstalled(context, it) } == true
     val englishOnly = selectedFile?.let(ModelManager::isEnglishOnly) == true
     val lockedEnglish = engine == "omi" || engine == "omi_npu"
-    val automatic = engine == "qwen3" || engine == "qwen3_hybrid"
+    val automatic = engine == "qwen3"
     val parakeetMultilingual = engine == "parakeet" || engine == "parakeet_npu"
     val npuReady = engine == "parakeet_npu" && NpuPackageStore.archiveState(context) == NpuArchiveState.READY
     val omiNpuReady = engine == "omi_npu" && OmiNpuPackageStore.archiveState(context) == NpuArchiveState.READY
-    val qwenHybridReady = engine == "qwen3_hybrid" && Qwen3HybridPackageStore.state(context) == NpuArchiveState.READY
     var selected by remember(engine, selectedFile?.absolutePath) {
         mutableStateOf(if (englishOnly || lockedEnglish || (parakeetMultilingual && AppPrefs.getTranscriptionLanguage(context) == "auto")) "en" else AppPrefs.getTranscriptionLanguage(context))
     }
@@ -112,7 +109,6 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val modelName = when {
         engine == "parakeet_npu" -> NpuPackageStore.DISPLAY_NAME
         engine == "omi_npu" -> OmiNpuPackageStore.DISPLAY_NAME
-        engine == "qwen3_hybrid" -> Qwen3HybridPackageStore.DISPLAY_NAME
         localModel != null -> localModel.name
         selectedFile != null -> ModelManager.displayName(selectedFile)
         else -> "No model selected"
@@ -120,20 +116,17 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val modelReady = when {
         engine == "parakeet_npu" -> npuReady
         engine == "omi_npu" -> omiNpuReady
-        engine == "qwen3_hybrid" -> qwenHybridReady
         localModel != null -> localInstalled
         else -> selectedFile != null
     }
     val explanation = when {
         !modelReady && engine == "parakeet_npu" -> "The Qualcomm NPU package is incomplete. Repair it in Models & downloads."
         !modelReady && engine == "omi_npu" -> "The Omi Med NPU package is incomplete. Repair it in Models & downloads."
-        !modelReady && engine == "qwen3_hybrid" -> "The Qwen hybrid package is incomplete. Repair it in Models & downloads."
         !modelReady && engine == "parakeet" -> "Parakeet model files are incomplete. Restore or reinstall Parakeet in Models & downloads."
         !modelReady && localModel != null -> "${localModel.name} is incomplete. Restore or reinstall it in Models & downloads."
         engine == "parakeet" || engine == "parakeet_npu" -> "Parakeet TDT 0.6B v3 supports 25 European languages. Select the spoken language for this model."
         engine == "qwen3" -> "Qwen3-ASR 1.7B automatically detects among its supported languages."
         engine == "omi_npu" -> "Omi Med NPU supports English. Review medical terms and doses; encoder numerical qualification is not complete."
-        engine == "qwen3_hybrid" -> "Experimental Qwen 0.6B: 12-second windows, S26 QNN encoder plus CPU decoder. Validate fidelity before critical use."
         engine == "omi" -> "Omi Med STT v1 Q8_0 is an English medical-domain model and automatically uses the shared parakeet.cpp OpenCL/Adreno runtime."
         selectedFile == null -> "Select a Whisper model before choosing a language."
         englishOnly -> "This imported .en Whisper model supports English only."
@@ -505,57 +498,52 @@ internal fun EffectModeCard(title: String, selected: String, supported: Boolean,
 internal fun DiagnosticsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // This state belongs to the general transcription-log preview, not to the retired Omi probe.
+    var probeRunning by remember { mutableStateOf(false) }
+    var testEncoder by remember { mutableStateOf(false) }
+    var probeSummary by remember { mutableStateOf("") }
     var preview by remember { mutableStateOf(DiagnosticLogger.readTail(context, 12_000)) }
+    fun runOmiProbe() {
+        if (!probeRunning) {
+            probeRunning = true
+            probeSummary = "Testing Omi QNN contexts. Keep the app open; encoder loading may take several minutes."
+            scope.launch {
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        NpuRuntimeClient.connect(context).use { client ->
+                            client.probeOmiContexts(testEncoder)
+                        }
+                    }
+                }
+                outcome.onSuccess { result ->
+                    val summary = buildString {
+                        append("Omi NPU probe: ")
+                        append(if (result.optBoolean("ok")) "PASS" else "FAILED")
+                        append("; graphs=")
+                        val graphs = result.optJSONArray("graphs")
+                        if (graphs == null) append("no results") else {
+                            for (i in 0 until graphs.length()) {
+                                val graph = graphs.getJSONObject(i)
+                                if (i > 0) append(", ")
+                                append(graph.optString("graph"))
+                                append(if (graph.optBoolean("ok")) " PASS" else " FAIL@${graph.optString("failure_stage")}")
+                            }
+                        }
+                        result.optString("error").takeIf { it.isNotBlank() }?.let { append("; ").append(it) }
+                    }
+                    DiagnosticLogger.append(context, "omi-npu-probe RESULT $summary")
+                    DiagnosticLogger.append(context, "omi-npu-probe JSON ${result}")
+                    probeSummary = summary
+                }.onFailure { error ->
+                    DiagnosticLogger.appendError(context, "omi-npu-probe IPC", error)
+                    probeSummary = "Probe could not finish: ${error::class.java.simpleName}: ${error.message}; export diagnostics for details"
+                }
+                probeRunning = false
+                preview = DiagnosticLogger.readTail(context, 12_000)
+            }
+        }
+    }
     var verbose by remember { mutableStateOf(AppPrefs.isVerboseDiagnostics(context)) }
     var status by remember { mutableStateOf("") }
-    var reports by remember { mutableStateOf(emptyList<DiagnosticReports.Report>()) }
-    LaunchedEffect(Unit) {
-        reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
-    }
-    var generatingReport by remember { mutableStateOf(false) }
-    var confirmDeleteAll by remember { mutableStateOf(false) }
-    var deleteReportName by remember { mutableStateOf<String?>(null) }
-    fun shareReport(report: DiagnosticReports.Report) {
-        runCatching {
-            val uri = DiagnosticReports.shareUri(context, report)
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "application/zip"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData = android.content.ClipData.newUri(context.contentResolver, report.name, uri)
-            }
-            context.startActivity(Intent.createChooser(send, "Share diagnostic ZIP"))
-        }.onFailure { status = "Unable to share report: ${it::class.java.simpleName}" }
-    }
-    if (confirmDeleteAll) AlertDialog(
-        onDismissRequest = { confirmDeleteAll = false },
-        title = { Text("Delete all diagnostic ZIPs?") },
-        text = { Text("Only saved diagnostic reports will be deleted. Models, recordings, transcripts, and the live log are unaffected.") },
-        confirmButton = { TextButton(onClick = {
-            confirmDeleteAll = false
-            scope.launch {
-                val count = withContext(Dispatchers.IO) { DiagnosticReports.deleteAll(context) }
-                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
-                status = "$count diagnostic reports deleted"
-            }
-        }) { Text("Delete reports") } },
-        dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } }
-    )
-    deleteReportName?.let { name -> AlertDialog(
-        onDismissRequest = { deleteReportName = null },
-        title = { Text("Delete this report?") },
-        text = { Text(name) },
-        confirmButton = { TextButton(onClick = {
-            deleteReportName = null
-            scope.launch {
-                val deleted = withContext(Dispatchers.IO) { DiagnosticReports.delete(context, name) }
-                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
-                status = if (deleted) "Diagnostic report deleted" else "Report could not be deleted"
-            }
-        }) { Text("Delete") } },
-        dismissButton = { TextButton(onClick = { deleteReportName = null }) { Text("Cancel") } }
-    ) }
     val clipboard = LocalClipboardManager.current
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
@@ -613,6 +601,25 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Omi Med NPU compatibility", style = MaterialTheme.typography.titleMedium)
+                    Text("Download the Omi NPU package from Models & downloads first. This runs a synthetic QNN graph test on those installed assets, not a speech transcription test.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = testEncoder, onCheckedChange = { testEncoder = it }, enabled = !probeRunning)
+                        Text("Include 1.2 GB encoder (longer test)", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(onClick = { runOmiProbe() }, enabled = !probeRunning) {
+                        Text(if (probeRunning) "Testing QNN contexts…" else "Test downloaded Omi NPU assets")
+                    }
+                    if (probeRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (probeSummary.isNotBlank()) Text(probeSummary, style = MaterialTheme.typography.bodySmall)
+                    Text("The export below includes per-graph failure stage, session errors, stacks, execution timing and the NPU worker log. CPU fallback is disabled.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Transcription log", style = MaterialTheme.typography.titleMedium)
                     Text("${DiagnosticLogger.sizeBytes(context) / 1024} KB stored locally. The log automatically trims itself after 2 MB.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -634,46 +641,6 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                         }) { Text("Clear log", color = MaterialTheme.colorScheme.error) }
                     }
                     if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Automatic diagnostic ZIPs", style = MaterialTheme.typography.titleMedium)
-                    Text("A sanitized ZIP is saved to your selected Whisperapp/Logs folder after each transcription (success, failure, or cancellation). If the folder is unavailable, the ZIP is retained privately. No recordings, transcripts, token IDs, model weights, or personal file paths are included.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = !generatingReport, onClick = {
-                            generatingReport = true
-                            scope.launch {
-                                val created = withContext(Dispatchers.IO) {
-                                    DiagnosticReports.manualSnapshot(context)
-                                }
-                                status = if (created != null) "Diagnostic ZIP created" else "Could not generate diagnostic ZIP"
-                                reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) }
-                                generatingReport = false
-                            }
-                        }) { Text(if (generatingReport) "Creating..." else "Create ZIP now") }
-                        OutlinedButton(onClick = {
-                            scope.launch { reports = withContext(Dispatchers.IO) { DiagnosticReports.list(context) } }
-                        }) { Text("Refresh ZIPs") }
-                    }
-                    Text(DiagnosticReports.storageDescription(context), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${reports.size} saved reports. Older reports are automatically pruned to at most 8 files / 32 MB.",
-                        style = MaterialTheme.typography.bodySmall)
-                    reports.take(8).forEach { report ->
-                        HorizontalDivider()
-                        Text(report.name, style = MaterialTheme.typography.bodySmall)
-                        Text("${report.sizeBytes / 1024} KiB · ${if (report.location == DiagnosticReports.Location.WORKSPACE_LOGS) "Whisperapp/Logs" else "Private fallback"}", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { shareReport(report) }) { Text("Share ZIP") }
-                            TextButton(onClick = { deleteReportName = report.name }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                        }
-                    }
-                    if (reports.isNotEmpty()) {
-                        TextButton(onClick = { confirmDeleteAll = true }) { Text("Delete all diagnostic ZIPs", color = MaterialTheme.colorScheme.error) }
-                    }
                 }
             }
 

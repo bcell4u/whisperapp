@@ -39,6 +39,8 @@ class NpuRuntimeWorkerService : Service() {
 
     private val binder = object : INpuRuntimeService.Stub() {
         override fun bootstrap(): String = guarded("bootstrap") { engine.bootstrap() }
+        override fun probeOmiContexts(includeEncoder: Boolean): String =
+            guarded("probeOmiContexts") { engine.probeOmiContexts(includeEncoder) }
         override fun prepareRuntime(): String = guarded("prepareRuntime") { engine.prepareRuntime() }
         override fun prepareOmiRuntime(): String = guarded("prepareOmiRuntime") { engine.prepareOmiRuntime() }
         override fun transcribeOmiChunk(pcm: SharedMemory, sampleCount: Int, audioDurationMs: Long): String =
@@ -347,6 +349,213 @@ class NpuRuntimeWorkerService : Service() {
                 .put("htp_backend_path", htp.absolutePath)
                 .put("ep_devices", JSONArray(devices.map(::deviceJson)))
                 .put("cpu_fallback_policy", "disabled")
+        }
+
+        /** Diagnostic-only, no model installation and no changes to Parakeet's prepared sessions. */
+        @Synchronized
+        fun probeOmiContexts(includeEncoder: Boolean): JSONObject {
+            val started = SystemClock.elapsedRealtime()
+            val report = JSONObject()
+                .put("probe", "omi-med-v2-ort-qnn-context-v1")
+                .put("qnn_context_sdk", "2.50")
+                .put("mode", if (includeEncoder) "all-three" else "decoder-only")
+                .put("cpu_fallback", "disabled")
+                .put("synthetic_inputs", true)
+            val results = JSONArray()
+            report.put("graphs", results)
+            var stage = "preflight"
+            try {
+                check(sessions.isEmpty()) { "Parakeet NPU session is active; close transcription before running the Omi probe" }
+                stage = "bootstrap-qnn"
+                report.put("runtime", bootstrap())
+                stage = "locate-installed-omi-package"
+                val files = OmiNpuPackageStore.probeArtifacts(service).mapValues { (_, doc) ->
+                    ProbeDocument(doc.uri, doc.size)
+                }
+                log("omi probe files listed count=${files.size} includeEncoder=$includeEncoder")
+                report.put("available_files", JSONArray(files.keys.sorted()))
+                val selected = if (includeEncoder) OmiNpuProbeContracts.ALL else OmiNpuProbeContracts.DECODER
+                val environment = requireNotNull(env)
+                val htp = requireNotNull(htpPath)
+                val dir = File(service.cacheDir, "omi-qnn-probe").apply {
+                    deleteRecursively()
+                    require(mkdirs() || isDirectory) { "Cannot create Omi probe cache directory" }
+                }
+                try {
+                    selected.forEach { context ->
+                        val graph = context.graph
+                        val found = files[graph.artifactPath]
+                        results.put(probeOmiGraph(environment, htp, context, found, dir))
+                    }
+                } finally {
+                    if (!dir.deleteRecursively()) log("omi probe cleanup WARN: temporary files remain under ${dir.absolutePath}")
+                }
+                val passed = (0 until results.length()).count { results.getJSONObject(it).optBoolean("ok") }
+                report.put("passed", passed)
+                    .put("total", results.length())
+                    .put("ok", passed == results.length())
+                stage = "complete"
+            } catch (t: Throwable) {
+                report.put("ok", false).put("failure_stage", stage)
+                    .put("error_type", t::class.java.name)
+                    .put("error", t.message ?: "(no message)")
+                    .put("stack", android.util.Log.getStackTraceString(t))
+                log("omi probe FAIL stage=$stage ${t::class.java.name}: ${t.message}")
+            }
+            report.put("total_elapsed_ms", SystemClock.elapsedRealtime() - started)
+            log("omi probe END ok=${report.optBoolean("ok")} durationMs=${report.optLong("total_elapsed_ms")}")
+            return report
+        }
+
+        private data class ProbeDocument(val uri: android.net.Uri, val size: Long)
+
+        private fun probeOmiGraph(
+            environment: OrtEnvironment,
+            htp: File,
+            context: OmiNpuProbeContracts.Context,
+            file: ProbeDocument?,
+            root: File
+        ): JSONObject {
+            val graph = context.graph
+            val result = JSONObject().put("graph", graph.id).put("qnn_graph", graph.graphName)
+                .put("file", graph.artifactPath).put("expected_bytes", graph.artifactBytes)
+                .put("expected_sha256", context.sha256)
+            val errors = JSONArray()
+            result.put("load_attempts", errors)
+            val started = SystemClock.elapsedRealtime()
+            var stage = "locate"
+            val dir = File(root, graph.id).apply { mkdirs() }
+            val wrapper = File(dir, "context.onnx")
+            var loaded: LoadedSession? = null
+            var staged: File? = null
+            try {
+                val artifact = requireNotNull(file) { "${graph.artifactPath} not found in selected directory" }
+                result.put("reported_bytes", artifact.size)
+                require(artifact.size < 0 || artifact.size == graph.artifactBytes) {
+                    "${graph.artifactPath} size mismatch expected=${graph.artifactBytes} actual=${artifact.size}"
+                }
+                stage = "sha256"
+                log("omi probe ${graph.id} stage=sha256 expectedBytes=${graph.artifactBytes}")
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                var bytesRead = 0L
+                requireNotNull(service.contentResolver.openInputStream(artifact.uri)) {
+                    "Cannot open ${graph.artifactPath} to verify SHA-256"
+                }.buffered(1024 * 1024).use { input ->
+                    val buf = ByteArray(1024 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        if (n == 0) continue
+                        digest.update(buf, 0, n)
+                        bytesRead += n
+                    }
+                }
+                val hash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+                result.put("sha256", hash).put("verified_bytes", bytesRead)
+                require(bytesRead == graph.artifactBytes) {
+                    "${graph.artifactPath} SHA read length mismatch expected=${graph.artifactBytes} actual=$bytesRead"
+                }
+                require(hash.equals(context.sha256, ignoreCase = true)) {
+                    "${graph.artifactPath} SHA256 mismatch; file differs from published model manifest"
+                }
+                log("omi probe ${graph.id} sha256 PASS bytes=$bytesRead graph=${graph.graphName}")
+                stage = "open-fd"
+                log("omi probe ${graph.id} stage=open-fd")
+                requireNotNull(service.contentResolver.openFileDescriptor(artifact.uri, "r")) {
+                    "Storage provider refused descriptor for ${graph.artifactPath}"
+                }.use { pfd ->
+                    val paths = linkedMapOf("proc-fd" to "/proc/self/fd/${pfd.fd}")
+                    runCatching { Os.readlink("/proc/self/fd/${pfd.fd}") }.getOrNull()?.let { resolved ->
+                        if (resolved.startsWith("/") && File(resolved).canRead()) paths["resolved-path"] = resolved
+                    }
+                    for ((mode, path) in paths) {
+                        stage = "load-$mode"
+                        log("omi probe ${graph.id} stage=$stage")
+                        val attempt = trySession(environment, htp, graph, wrapper, path)
+                        if (attempt.loaded != null) {
+                            loaded = attempt.loaded
+                            result.put("load_method", mode).put("load_ms", attempt.loaded.loadMs)
+                            break
+                        }
+                        errors.put(JSONObject().put("stage", stage)
+                            .put("message", attempt.error ?: "no error")
+                            .put("stack", attempt.trace ?: ""))
+                        log("omi probe ${graph.id} stage=$stage FAIL ${attempt.error}")
+                    }
+                    if (loaded == null) {
+                        stage = "staging-storage-check"
+                        val freeBytes = StatFs(service.cacheDir.absolutePath).availableBytes
+                        val required = graph.artifactBytes + STAGING_HEADROOM_BYTES
+                        result.put("staging_required_bytes", required).put("staging_available_bytes", freeBytes)
+                        require(freeBytes >= required) {
+                            "Direct QNN loading failed and app storage is insufficient to stage ${graph.artifactPath}: need=$required available=$freeBytes"
+                        }
+                        stage = "staging-copy"
+                        log("omi probe ${graph.id} stage=staging-copy bytes=${graph.artifactBytes}")
+                        staged = File(dir, "context-staged.bin")
+                        var copied = 0L
+                        requireNotNull(service.contentResolver.openInputStream(artifact.uri)).use { input ->
+                            FileOutputStream(requireNotNull(staged)).buffered(1024 * 1024).use { output ->
+                                val buf = ByteArray(1024 * 1024)
+                                while (true) {
+                                    val n = input.read(buf)
+                                    if (n < 0) break
+                                    output.write(buf, 0, n)
+                                    copied += n
+                                }
+                            }
+                        }
+                        require(copied == graph.artifactBytes) { "Staging incomplete copied=$copied expected=${graph.artifactBytes}" }
+                        stage = "load-staged"
+                        log("omi probe ${graph.id} stage=$stage")
+                        val attempt = trySession(environment, htp, graph, wrapper, requireNotNull(staged).name)
+                        if (attempt.loaded == null) {
+                            errors.put(JSONObject().put("stage", stage)
+                                .put("message", attempt.error ?: "no error")
+                                .put("stack", attempt.trace ?: ""))
+                            error("All QNN EPContext load methods failed for ${graph.id}: ${attempt.error}")
+                        }
+                        loaded = attempt.loaded
+                        result.put("load_method", "staged").put("load_ms", attempt.loaded.loadMs)
+                    }
+                    stage = "run-inference"
+                    log("omi probe ${graph.id} stage=$stage")
+                    val session = requireNotNull(loaded)
+                    graph.inputs.forEach { tensor ->
+                        val count = tensor.shape.fold(1L) { product, dimension -> Math.multiplyExact(product, dimension) }.toInt()
+                        val inputValues = FloatArray(count) { if (tensor.name.startsWith("subsample_mask")) 1f else 0f }
+                        session.buffers.putInput(tensor.name, inputValues)
+                    }
+                    val inferenceStarted = SystemClock.elapsedRealtime()
+                    session.session.run(session.buffers.inputs, session.buffers.pinnedOutputs).use { _ ->
+                        val shapes = JSONArray()
+                        graph.outputs.forEach { tensor ->
+                            val values = session.buffers.copyOutput(tensor.name)
+                            val peak = values.maxOf { kotlin.math.abs(it) }
+                            shapes.put(JSONObject().put("tensor", tensor.name)
+                                .put("shape", JSONArray(tensor.shape.toList()))
+                                .put("elements", values.size).put("max_abs", peak.toDouble()))
+                        }
+                        result.put("outputs", shapes)
+                    }
+                    result.put("inference_ms", SystemClock.elapsedRealtime() - inferenceStarted)
+                    result.put("ok", true).put("failure_stage", JSONObject.NULL)
+                    log("omi probe ${graph.id} PASS load=${result.optString("load_method")} loadMs=${result.optLong("load_ms")} inferenceMs=${result.optLong("inference_ms")}")
+                }
+            } catch (t: Throwable) {
+                result.put("ok", false).put("failure_stage", stage)
+                    .put("error_type", t::class.java.name)
+                    .put("error", t.message ?: "(no message)")
+                    .put("stack", android.util.Log.getStackTraceString(t))
+                log("omi probe ${graph.id} FAIL stage=$stage ${t::class.java.name}: ${t.message} stack=${android.util.Log.getStackTraceString(t)}")
+            } finally {
+                runCatching { loaded?.close() }
+                if (staged != null && staged!!.exists() && !staged!!.delete()) {
+                    log("omi probe ${graph.id} WARN could not delete staged context")
+                }
+                result.put("elapsed_ms", SystemClock.elapsedRealtime() - started)
+            }
+            return result
         }
 
         /**
@@ -669,7 +878,7 @@ class NpuRuntimeWorkerService : Service() {
         fun prepareOmiRuntime(): JSONObject {
             var stage = "bootstrap"
             if (env == null || qnnDevices.isEmpty()) bootstrap()
-            if (sessions.size == 3 && OmiNpuGraphContracts.ALL.all { sessions.containsKey(it.graph.id) } &&
+            if (sessions.size == 3 && OmiNpuProbeContracts.ALL.all { sessions.containsKey(it.graph.id) } &&
                 omiEmbedding != null && omiTokenizer != null) return omiReadyJson()
             closeSessions()
             cancelRequested = false
@@ -684,7 +893,7 @@ class NpuRuntimeWorkerService : Service() {
             val started = SystemClock.elapsedRealtime()
             try {
                 // Load small contexts before allocating the large encoder HTP context.
-                OmiNpuGraphContracts.ALL.forEach { spec ->
+                OmiNpuProbeContracts.ALL.forEach { spec ->
                     stage = "load-${spec.graph.id}"
                     checkNotCancelled()
                     val doc = requireNotNull(docs[spec.graph.artifactPath]) { "Missing ${spec.graph.artifactPath}" }
@@ -777,7 +986,7 @@ class NpuRuntimeWorkerService : Service() {
                 checkNotCancelled()
                 stage = "encoder-qnn-run"
                 val encodeStart = SystemClock.elapsedRealtime()
-                val encoded = runGraph(OmiNpuGraphContracts.ENCODER.graph, mapOf(
+                val encoded = runGraph(OmiNpuProbeContracts.ENCODER.graph, mapOf(
                     "audio_signal" to features.audioSignal,
                     "subsample_mask_1" to features.subsampleMask1,
                     "subsample_mask_2" to features.subsampleMask2,
@@ -865,13 +1074,13 @@ class NpuRuntimeWorkerService : Service() {
                 require(tokenId in 0..1024) { "Omi predictor token id out of bounds $tokenId" }
                 val table = requireNotNull(omiEmbedding) { "Omi token embeddings not loaded" }
                 System.arraycopy(table, tokenId * 640, predictorEmbedding, 0, 640)
-                runGraph(OmiNpuGraphContracts.PREDICTOR.graph, predictorInputs, predictorOutputs)
+                runGraph(OmiNpuProbeContracts.PREDICTOR.graph, predictorInputs, predictorOutputs)
             }
             override fun joint(frameIndex: Int): FloatArray {
                 checkNotCancelled()
                 require(frameIndex in 0..150) { "Omi joint frame out of bounds $frameIndex" }
                 for (channel in 0 until 1024) encoderFrame[channel] = encoded[channel * 151 + frameIndex]
-                runGraph(OmiNpuGraphContracts.JOINT.graph,
+                runGraph(OmiNpuProbeContracts.JOINT.graph,
                     mapOf("encoder_frame" to encoderFrame, "predictor_out" to state.predictorOut),
                     mapOf("output_0" to logits), validateOutputs = false)
                 return logits
