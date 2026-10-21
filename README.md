@@ -1,4 +1,6 @@
-# Experimental Qwen GGUF Lab v6.6.1 (from clean v6.5.22)
+# Experimental Qwen GGUF Lab v6.6.5 (from clean v6.5.22)
+
+**New in 6.6.5:** A synthetic-only **VERIFY DECODER** mode checks QNN feature determinism, native two-pass KV reset and decoder output reproducibility, and optional independent token-reference agreement. It exports synthetic FP32LE features to `Download/SFSU/Whisperapp/Verification` and writes token-free results to `Download/SFSU/Whisperapp/Logs`. It never claims M-RoPE/logit parity without authoritative numerical comparisons. See [LAB_6_6_5_DECODER_VERIFICATION.md](LAB_6_6_5_DECODER_VERIFICATION.md) for positive and negative outcomes and the one-run test plan. This source is not a locally compiled APK.
 
 **Resource upload repair (CI run 107112949945):** If GitHub reports `MISSING app/src/main/res/xml/lab_data_extraction_rules.xml`, restore the complete `app/src/main/res` folder from this source ZIP; see [LAB_6_6_RESOURCE_RECOVERY.md](LAB_6_6_RESOURCE_RECOVERY.md). The Lab verifier checks all 24 XML resources together.
 

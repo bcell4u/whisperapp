@@ -1,6 +1,6 @@
-# Experimental 6.6.1 Lab versioning note
+# Experimental 6.6.5 Lab versioning note
 
-**The authoritative version for this Lab source is now `6.6.1` / code `66001`**, with a `6.6.1-dev` debug APK name. Only the Lab application ID is emitted, and release tags are uniquely scoped (`v6.6.1-lab.*`). The original v6.5.22 baseline and its normal signing conventions are retained. See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md). The v6.5.22 documentation below remains for historical reference.
+**The authoritative version for this Lab source is now `6.6.5` / code `66005`**, with a `6.6.5-dev` debug APK name. Only the Lab application ID is emitted, and release tags are uniquely scoped (`v6.6.5-lab.*`). The original v6.5.22 baseline and its normal signing conventions are retained. See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md). The v6.5.22 documentation below remains for historical reference.
 
 ---
 

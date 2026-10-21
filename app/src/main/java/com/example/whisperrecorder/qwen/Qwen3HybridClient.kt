@@ -34,6 +34,8 @@ internal class Qwen3HybridClient private constructor(private val app: Context) :
     }
     fun encodeGgufLab(pcm: SharedMemory, count: Int): JSONObject =
         JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.encodeGgufLab(pcm, count))
+    fun verifyDecoderFixture(): JSONObject =
+        JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.verifyDecoderFixture())
     fun finishGgufLab(): JSONObject =
         JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.finishGgufLab())
     fun cancelCurrent() { runCatching { remote?.cancelCurrent() } }

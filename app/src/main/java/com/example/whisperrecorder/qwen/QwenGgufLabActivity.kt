@@ -39,6 +39,9 @@ class QwenGgufLabActivity : ComponentActivity() {
         if (uri != null) restoreSavedModels(uri)
     }
 
+    private val chooseReference = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && !busy.get()) importVerificationReference(uri)
+    }
     private var activeClient: Qwen3HybridClient? = null
     private val busy = AtomicBoolean(false)
     private val downloadCancelled = AtomicBoolean(false)
@@ -95,6 +98,16 @@ class QwenGgufLabActivity : ComponentActivity() {
         button("Or import QNN encoder ZIP") { chooseEncoderZip.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
         button("Select Q8 GGUF model") { chooseModel.launch(arrayOf("application/octet-stream", "*/*")) }
         button("Select lecture audio (up to 4 min)") { chooseAudio.launch(arrayOf("audio/*", "video/*")) }
+        button("VERIFY DECODER (synthetic fixture, no lecture)") { verifyDecoderOnce() }
+        button("Import independent reference token JSON (optional)") {
+            chooseReference.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }
+        button("Clear reference JSON (return to internal-only test)") {
+            if (!busy.get()) {
+                File(filesDir, "qwen-gguf-lab-reference.json").delete()
+                showMessage("Reference cleared. Verification can still run internal tests, but cannot qualify external token parity.")
+            }
+        }
         overlapControl = CheckBox(this).apply {
             text = "Experimental: overlap segments by 1 second (may improve words at boundaries; slower)"
             isChecked = true
@@ -123,6 +136,118 @@ class QwenGgufLabActivity : ComponentActivity() {
         setContentView(ScrollView(this).apply { addView(layout) })
     }
     private fun showMessage(message: String) = runOnUiThread { output.text = message }
+    private fun importVerificationReference(uri: Uri) {
+        if (!busy.compareAndSet(false, true)) return
+        Thread({
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                    val limited = input.readNBytes(32_769)
+                    require(limited.size in 1..32_768) { "Reference JSON exceeds 32 KiB" }
+                    limited
+                } ?: error("Reference cannot be opened")
+                val json = JSONObject(String(bytes, Charsets.UTF_8))
+                require(json.getInt("schema") == 1 &&
+                    json.getString("kind") == "qwen3-asr-0.6b-fixture-tokens")
+                val ids = json.getJSONArray("token_ids")
+                require(ids.length() in 1..128)
+                for (i in 0 until ids.length()) {
+                    val value = ids.get(i)
+                    require(value is Int && value in 0 until 151936) { "Token ID must be an integer" }
+                }
+                require(json.getString("origin").isNotBlank() &&
+                    json.getString("origin").length <= 160)
+                for (key in listOf("gguf_sha256", "feature_sha256")) {
+                    require(json.getString(key).matches(Regex("[0-9a-f]{64}")))
+                }
+                val file = File(filesDir, "qwen-gguf-lab-reference.json")
+                val staging = File(filesDir, "qwen-gguf-lab-reference.json.part")
+                try {
+                    staging.writeBytes(bytes)
+                    // Rename over only this Lab's own prior reference, not any user file.
+                    java.nio.file.Files.move(staging.toPath(), file.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                } finally { staging.delete() }
+                showMessage("Reference imported into Lab storage. Origin is user-supplied and not independently authenticated. " +
+                    "Run VERIFY DECODER to compare exact input/model hashes and generated tokens.")
+            } catch (t: Throwable) {
+                showMessage("Reference import failed: ${t.javaClass.simpleName}. Previous reference preserved.")
+            } finally { busy.set(false) }
+        }, "qwen-verify-reference-import").start()
+    }
+
+    private fun verifyDecoderOnce() {
+        if ((modelUri == null && !privateModel().isFile) || !QwenLabEncoderAssets.present(this)) {
+            showMessage("Download/import the encoder + Q8 GGUF first; no lecture is needed for verification.")
+            return
+        }
+        if (!busy.compareAndSet(false, true)) return
+        run.isEnabled = false
+        overlapControl.isEnabled = false
+        downloadCancelled.set(false)
+        Thread({
+            val started = System.currentTimeMillis()
+            var result: JSONObject? = null
+            var failure: String? = null
+            var phase = "MODEL_IMPORT"
+            try {
+                modelUri?.let { importModel(it) }
+                phase = "PREPARE_QNN"
+                Qwen3HybridClient.connect(this).use { client ->
+                    activeClient = client
+                    val prep = client.prepareGgufLab(QwenDecoderRunConfig(4, false, false, false), 0)
+                    check(prep.optBoolean("ok")) { "QNN fixture prepare failed" }
+                    phase = "VERIFY_FIXTURE"
+                    val response = client.verifyDecoderFixture()
+                    if (!response.optBoolean("ok")) {
+                        failure = response.optString("error").take(64)
+                        error("Worker fixture verification stopped")
+                    }
+                    result = response
+                    phase = "COMPLETE"
+                }
+                val status = result!!.optString("verification_status")
+                showMessage(buildString {
+                    append("DECODER FIXTURE VERIFICATION: $status\n\n")
+                    append("Identical QNN output: ${result!!.optBoolean("qnn_feature_repeat_identical")}\n")
+                    append("Decoder replay: ${result!!.optBoolean("internal_repeat_identical")}\n")
+                    append("External reference: ${result!!.optString("reference_status")}\n")
+                    append("First divergent token index: ${result!!.optInt("first_divergent_token_index", -1)}\n")
+                    append("Generated tokens: ${result!!.optInt("generated_tokens")}\n")
+                    append("One decoder model load: ${result!!.optInt("native_loads") == 1}\n")
+                    append("Model SHA-256: ${result!!.optString("model_sha256")}\n")
+                    append("Feature SHA-256: ${result!!.optString("feature_sha256")}\n")
+                    append("Native SHA-256: ${result!!.optString("native_sha256")}\n")
+                    append("Synthetic features (not lecture audio): " +
+                        "${result!!.optString("synthetic_export_status")}\n")
+                    if (result!!.optString("synthetic_export_status") == "SAVED") {
+                        append("File: Download/SFSU/Whisperapp/Verification/" +
+                            result!!.optString("synthetic_export_filename") + "\n")
+                    }
+                    append("\n")
+                    append("M-RoPE numerical parity: NOT VERIFIED. Identical local outputs do not prove " +
+                        "official model equivalence. A supplied token reference establishes token agreement " +
+                        "only, not logits or independent reference provenance.")
+                })
+            } catch (t: Throwable) {
+                if (failure == null) failure = t.javaClass.simpleName
+                showMessage("Decoder fixture verification INCONCLUSIVE at $phase: $failure. " +
+                    "Check the log, verify models and retry only after resolving the failure.")
+            } finally {
+                activeClient = null
+                val log = runCatching { QwenLabVerificationLog.save(this, started, result, failure, phase) }
+                runOnUiThread {
+                    output.append(log.fold(
+                        onSuccess = { "\n\nVerification log: Download/SFSU/Whisperapp/Logs/$it" },
+                        onFailure = { "\n\nVerification log save failed (${it.javaClass.simpleName})" }
+                    ))
+                    run.isEnabled = true
+                    overlapControl.isEnabled = true
+                }
+                busy.set(false)
+            }
+        }, "qwen-decoder-fixture-verification").start()
+    }
+
     private fun startOnce() {
         val selectedAudio = audioUri
         if (selectedAudio == null || (modelUri == null && !privateModel().isFile) ||

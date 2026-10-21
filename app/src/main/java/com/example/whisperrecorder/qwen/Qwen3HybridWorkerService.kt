@@ -19,6 +19,7 @@ import org.json.JSONObject
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -63,6 +64,9 @@ class Qwen3HybridWorkerService : Service() {
                     finally { SharedMemory.unmap(buffer) }
                 encode(samples)
             }
+        }
+        override fun verifyDecoderFixture(): String = report("verification") {
+            synchronized(this@Qwen3HybridWorkerService) { verifyFixture() }
         }
         override fun finishGgufLab(): String = report("finish") {
             synchronized(this@Qwen3HybridWorkerService) { finish() }
@@ -207,6 +211,180 @@ class Qwen3HybridWorkerService : Service() {
         segments++
         return JSONObject().put("encoded_segments", segments).put("preprocess_ms", preprocessMs)
             .put("encoder_ms", qnnMs).put("encoder_execution_provider", "QNNExecutionProvider")
+    }
+
+    /**
+     * Explicit, isolated fixture verification: no recording and no generated transcript.
+     * Runs the SAME synthetic mel twice through QNN, then decodes the SAME embedding
+     * twice in one persistent llama model process (KV cleared between segments).
+     * A second, independent reference is never fabricated from this local output.
+     */
+    private fun verifyFixture(): JSONObject {
+        check(!cancelRequested) { "Verification cancelled" }
+        check(QwenLabDecoderVerifier.selfTestGate()) { "Verification decision policy self-test failed" }
+        val session = requireNotNull(encoder) { "Encoder not prepared" }
+        val ort = requireNotNull(env)
+        val dir = requireNotNull(scratch)
+        require(segments == 0) { "Fixture verification requires an unused Lab session" }
+        val fixture = File(QwenLabEncoderAssets.directory(this), "golden-synthetic-mel-12s-f32.raw")
+        require(fixture.length() == 128L * 1200L * 4L)
+        val mel = FloatArray(128 * 1200)
+        ByteBuffer.wrap(fixture.readBytes()).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(mel)
+        val started = SystemClock.elapsedRealtime()
+        fun runQnn(): ByteArray {
+            check(!cancelRequested) { "Verification cancelled" }
+            return OnnxTensor.createTensor(ort, FloatBuffer.wrap(mel), longArrayOf(1, 128, 1200)).use { input ->
+                session.run(mapOf("mel" to input)).use { result ->
+                    val tensor = result.get("audio_features").orElseThrow() as OnnxTensor
+                    require(tensor.info.shape.contentEquals(longArrayOf(1, 156, 1024)))
+                    val floats = FloatArray(156 * 1024)
+                    tensor.floatBuffer.get(floats)
+                    require(floats.all { it.isFinite() })
+                    ByteBuffer.allocate(floats.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+                        .apply { asFloatBuffer().put(floats) }.array()
+                }
+            }
+        }
+        val firstFeatures = runQnn()
+        val secondFeatures = runQnn()
+        val featureHash = QwenLabDecoderVerifier.sha256(firstFeatures)
+        val qnnSame = firstFeatures.contentEquals(secondFeatures)
+        // Do not launch a decoder against two incompatible encoder outputs.
+        val exported = runCatching { QwenLabSyntheticFeatureExport.save(this, firstFeatures) }
+        if (!qnnSame) return JSONObject()
+            .put("verification_status", "FAIL_QNN_FEATURE_REPLAY")
+            .put("reference_status", "NOT_EVALUATED")
+            .put("qnn_feature_repeat_identical", false)
+            .put("feature_sha256", featureHash)
+            .put("synthetic_export_status", if (exported.isSuccess) "SAVED" else "FAILED")
+            .put("synthetic_export_filename", exported.getOrNull() ?: "")
+            .put("mrope_parity_verified", false)
+        val featureFile = File(dir, "fixture.f32le")
+        featureFile.writeBytes(firstFeatures)
+        val manifest = File(dir, "fixture.lst")
+        manifest.writeText("fixture.f32le\nfixture.f32le\n", Charsets.UTF_8)
+        val gguf = File(filesDir, "qwen-gguf-lab-models/decoder-q8.gguf")
+        val modelHash = sha256File(gguf)
+        val native = File(applicationInfo.nativeLibraryDir, "libwrqwengguflab.so")
+        val nativeHash = sha256File(native)
+        val reference = loadFixtureReference()
+        val process = ProcessBuilder(native.absolutePath, gguf.absolutePath,
+            "--multi", manifest.absolutePath, "128", "--app-private-trace")
+            .directory(dir).apply {
+                environment()["LD_LIBRARY_PATH"] = applicationInfo.nativeLibraryDir
+            }.start()
+        nativeProcess = process
+        val errors = Thread {
+            runCatching { process.errorStream.use { it.copyTo(java.io.OutputStream.nullOutputStream()) } }
+        }.apply { isDaemon = true; start() }
+        val watchdog = Thread {
+            try { Thread.sleep(120_000) } catch (_: InterruptedException) { return@Thread }
+            if (process.isAlive) process.destroyForcibly()
+        }.apply { isDaemon = true; start() }
+        try {
+            val traces = mutableMapOf<Int, List<Int>>()
+            val metrics = mutableMapOf<Int, JSONObject>()
+            var summary: JSONObject? = null
+            var received = 0
+            process.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    check(!cancelRequested) { "Verification cancelled" }
+                    received += line.length
+                    require(received <= 45_000) { "Fixture verification IPC exceeded limit" }
+                    when {
+                        line.startsWith("WR_APP_PRIVATE_TOKENS=") -> {
+                            val obj = JSONObject(line.substringAfter('='))
+                            val index = obj.getInt("segment")
+                            require(index in 0..1 && index !in traces)
+                            val ids = obj.getJSONArray("ids")
+                            require(ids.length() in 1..128)
+                            traces[index] = (0 until ids.length()).map { i -> ids.getInt(i) }
+                        }
+                        line.startsWith("WR_BRIDGE_MULTI_METRIC=") -> {
+                            val obj = JSONObject(line.substringAfter('='))
+                            val index = obj.getInt("index")
+                            require(index in 0..1 && index !in metrics)
+                            metrics[index] = obj
+                        }
+                        line.startsWith("WR_BRIDGE_MULTI_SUMMARY=") -> {
+                            require(summary == null)
+                            summary = JSONObject(line.substringAfter('='))
+                        }
+                    }
+                }
+            }
+            check(process.waitFor(20, TimeUnit.SECONDS) && process.exitValue() == 0)
+            val stats = requireNotNull(summary) { "Missing native decoder summary" }
+            require(stats.getInt("segments") == 2 && stats.getInt("model_loads") == 1 &&
+                stats.getInt("decode_threads") == 4 && stats.getInt("batch_threads") == 4)
+            require(traces.size == 2 && metrics.size == 2) { "Incomplete native token receipts" }
+            val first = traces.getValue(0)
+            val second = traces.getValue(1)
+            require(metrics.getValue(0).getInt("generation_steps") == first.size &&
+                metrics.getValue(1).getInt("generation_steps") == second.size)
+            val outcome = QwenLabDecoderVerifier.compare(first, second, modelHash, featureHash, reference)
+            // Native-reported EOS flags must also match private token streams.
+            val nativeEos = metrics.values.count { it.getBoolean("eos_reached") }
+            val eosConsistent = nativeEos == listOf(first, second).count {
+                it.last() in listOf(QwenLabDecoderVerifier.EOS_A, QwenLabDecoderVerifier.EOS_B)
+            }
+            val finalStatus = if (!eosConsistent) "FAIL_NATIVE_RECEIPT" else outcome.status
+            return JSONObject()
+                .put("verification_status", finalStatus)
+                .put("reference_status", outcome.referenceStatus)
+                .put("internal_repeat_identical", outcome.internallyIdentical)
+                .put("qnn_feature_repeat_identical", qnnSame)
+                .put("eos_both", outcome.eosBoth)
+                .put("first_divergent_token_index", outcome.firstDifferentToken)
+                .put("generated_tokens", outcome.tokenCount)
+                .put("model_sha256", modelHash).put("feature_sha256", featureHash)
+                .put("native_sha256", nativeHash)
+                .put("synthetic_export_status", if (exported.isSuccess) "SAVED" else "FAILED")
+                .put("synthetic_export_filename", exported.getOrNull() ?: "")
+                .put("native_loads", stats.getInt("model_loads"))
+                .put("native_threads", stats.getInt("decode_threads"))
+                .put("elapsed_ms", SystemClock.elapsedRealtime() - started)
+                .put("decision_policy_selftest", true)
+                .put("mrope_parity_verified", false)
+                .put("numerical_logits_parity_verified", false)
+        } finally {
+            watchdog.interrupt()
+            if (process.isAlive) process.destroyForcibly()
+            errors.join(1000)
+            nativeProcess = null
+            closeRuntimeInternal()
+        }
+    }
+
+    private fun sha256File(file: File): String {
+        require(file.isFile)
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buf = ByteArray(1024 * 1024)
+            while (true) {
+                check(!cancelRequested) { "Verification cancelled" }
+                val n = input.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+
+    /** Imported local-only reference. Never logs token IDs or user-supplied provenance text. */
+    private fun loadFixtureReference(): QwenLabDecoderVerifier.ExternalReference? {
+        val file = File(filesDir, "qwen-gguf-lab-reference.json")
+        if (!file.isFile) return null
+        require(file.length() in 1..32_768) { "Reference JSON too large" }
+        val json = JSONObject(file.readText(Charsets.UTF_8))
+        require(json.getInt("schema") == QwenLabDecoderVerifier.SCHEMA &&
+            json.getString("kind") == "qwen3-asr-0.6b-fixture-tokens") { "Reference schema mismatch" }
+        val ids = json.getJSONArray("token_ids")
+        require(ids.length() in 1..128) { "Reference token count invalid" }
+        return QwenLabDecoderVerifier.ExternalReference(
+            json.getString("gguf_sha256"), json.getString("feature_sha256"),
+            (0 until ids.length()).map { ids.getInt(it) }, json.getString("origin")
+        )
     }
 
     private fun finish(): JSONObject {

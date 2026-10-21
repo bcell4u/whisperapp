@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.4\nversionName=6.6.4\nversionCode=66004\n',
-      '6.6.4 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.5\nversionName=6.6.5\nversionCode=66005\n',
+      '6.6.5 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.4 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.5 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -118,6 +118,9 @@ app/src/main/java/com/example/whisperrecorder/qwen/QwenLabPublicModels.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDiagnosticLog.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleaner.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcher.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifier.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabVerificationLog.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabSyntheticFeatureExport.kt
 app/src/main/java/com/example/whisperrecorder/speaker/OfflineSpeakerService.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerAttribution.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerClusteringPolicy.kt
@@ -291,6 +294,26 @@ check('transcript' not in log_source.split('private val numericMetrics =')[1].sp
       'transcript might be included in diagnostic metrics allowlist')
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleanerTest.kt')
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcherTest.kt')
+verification_test = read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifierTest.kt')
+verifier = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifier.kt')
+verify_log = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabVerificationLog.kt')
+export = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabSyntheticFeatureExport.kt')
+for marker in ['PASS_INTERNAL_ONLY', 'PASS_REFERENCE_TOKENS', 'FAIL_REFERENCE_TOKENS',
+               'FAIL_INTERNAL_REPLAY', 'INCONCLUSIVE_NO_EOS',
+               'INCONCLUSIVE_REFERENCE_INPUT_MISMATCH', 'selfTestGate']:
+    check(marker in verifier and marker in verification_test or marker == 'selfTestGate' and marker in verifier,
+          f'verification fail-closed branch/test missing: {marker}')
+for marker in ['verifyDecoderFixture', 'qnn_feature_repeat_identical', 'model_sha256',
+               'feature_sha256', 'FAIL_QNN_FEATURE_REPLAY', 'native_sha256']:
+    check(marker in worker, f'worker decoder verification gate missing: {marker}')
+check('String verifyDecoderFixture();' in aidl and 'verifyDecoderFixture()' in ui,
+      'decoder verification AIDL/UI missing')
+check('contains_raw_tokens=false' in verify_log and 'contains_transcript=false' in verify_log and
+      'reference_authenticity_verified=false' in verify_log and
+      'Download/SFSU/Whisperapp/Verification/' in export and
+      'golden-synthetic-mel-12s-f32.raw' in worker,
+      'synthetic-only verification exports or privacy guards missing')
+read('scripts/create-qwen-verification-reference.py')
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabOverlapSegmentCountTest.kt')
 check('QwenLabTranscriptCleaner.cleanSegment' in worker and 'QwenLabDiagnosticLog.save' in ui,
       'transcript cleaning or automatic post-run log missing')
@@ -330,10 +353,10 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.4-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.5-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66004'",
-               "versionName='6.6.4-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66005'",
+               "versionName='6.6.5-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
@@ -344,4 +367,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.4 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.5 source/workflow static gates (NOT an APK compile)')
