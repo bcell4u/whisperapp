@@ -18,6 +18,7 @@ class QwenLabTranscriptStitcherTest {
         val result = QwenLabTranscriptStitcher.stitch(listOf("Hello hello", "hello again"), 0)
         assertEquals("Hello hello hello again", result.transcript)
         assertEquals(0, result.removedDuplicateWords)
+        assertEquals(0, result.repetitionCopiesRemoved)
     }
 
     @Test fun oneWordMatchIsNotSilentlyRemoved() {
@@ -38,6 +39,31 @@ class QwenLabTranscriptStitcherTest {
         assertEquals("MRSA treated with meropenem treated with mirapenem until cultures", guarded.transcript)
     }
 
+    @Test fun twoShortWordsAreNotEnoughEvidence() {
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "Please start it now", "it now after drawing cultures"
+        ), 1)
+        assertEquals("Please start it now it now after drawing cultures", result.transcript)
+        assertEquals(0, result.removedDuplicateWords)
+    }
+
+    @Test fun twoLongWordsCanBeDeduplicated() {
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "We discussed broad antibiotics", "broad antibiotics after cultures"
+        ), 1)
+        assertEquals("We discussed broad antibiotics after cultures", result.transcript)
+        assertEquals(2, result.removedDuplicateWords)
+    }
+
+    @Test fun supportsTwentyFourWordBoundaryMatches() {
+        val overlap = (1..24).joinToString(" ") { "word$it" }
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "A discussion about $overlap", "$overlap then a new point"
+        ), 1)
+        assertEquals("A discussion about $overlap then a new point", result.transcript)
+        assertEquals(24, result.removedDuplicateWords)
+    }
+
     @Test fun repeatedPhraseWithinNewContextIsNotRemovedIfNotAtBoundary() {
         val result = QwenLabTranscriptStitcher.stitch(listOf(
             "The plan includes antibiotics and cultures today",
@@ -50,6 +76,32 @@ class QwenLabTranscriptStitcherTest {
         val result = QwenLabTranscriptStitcher.stitch(listOf("Take blood cultures now", "blood cultures now"), 1)
         assertEquals("Take blood cultures now", result.transcript)
         assertEquals(3, result.removedDuplicateWords)
+    }
+
+    @Test fun ordinarySpokenRepetitionsArePreserved() {
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "Oxygen. Oxygen, respiratory treatments.",
+            "Now discuss infection prevention."
+        ), 1)
+        assertEquals("Oxygen. Oxygen, respiratory treatments. Now discuss infection prevention.", result.transcript)
+        assertEquals(0, result.repetitionCopiesRemoved)
+    }
+
+    @Test fun productionCleanupRequiresThreeSubstantialRepeatedPhrases() {
+        val loop = "Start antibiotics and draw cultures."
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "$loop $loop $loop", "Then review results and adjust therapy."
+        ), 1)
+        assertEquals("Start antibiotics and draw cultures. Then review results and adjust therapy.", result.transcript)
+        assertEquals(2, result.repetitionCopiesRemoved)
+    }
+
+    @Test fun repetitionOfTwoSentencesIsNotChanged() {
+        val result = QwenLabTranscriptStitcher.stitch(listOf(
+            "Start antibiotics and draw cultures. Start antibiotics and draw cultures.",
+            "Then review the results."
+        ), 1)
+        assertEquals("Start antibiotics and draw cultures. Start antibiotics and draw cultures. Then review the results.", result.transcript)
     }
 
     @Test fun rejectsUnqualifiedOverlapModes() {

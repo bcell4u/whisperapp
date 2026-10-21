@@ -38,7 +38,8 @@ internal object QwenLabDiagnosticLog {
         "segments", "model_loads", "preprocess_ms", "encoder_ms",
         "model_load_ms", "decoder_ms", "decoder_segments_wall_ms",
         "generated_tokens", "eos_segments", "native_rss_peak_kb", "native_cpu_ms",
-        "overlap_seconds", "stitched_duplicate_words", "stitched_boundaries", "unmatched_boundaries"
+        "overlap_seconds", "stitched_duplicate_words", "stitched_boundaries", "unmatched_boundaries",
+        "stitched_repetition_copies_removed"
     )
 
     internal fun render(report: RunReport): String = buildString {

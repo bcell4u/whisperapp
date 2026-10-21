@@ -279,6 +279,7 @@ class Qwen3HybridWorkerService : Service() {
                 .put("stitched_duplicate_words", stitched.removedDuplicateWords)
                 .put("stitched_boundaries", stitched.stitchedBoundaries)
                 .put("unmatched_boundaries", stitched.unmatchedBoundaries)
+                .put("stitched_repetition_copies_removed", stitched.repetitionCopiesRemoved)
                 .put("segments", segments).put("model_loads", stats.getInt("model_loads"))
                 .put("model_load_ms", stats.optLong("model_load_ms"))
                 .put("preprocess_ms", preprocessMs).put("encoder_ms", qnnMs)

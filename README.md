@@ -146,3 +146,7 @@ without logging audio, spoken words, transcripts, or private paths. Processing
 longer than 12 seconds is still segmented, and the four-minute cap remains.
 This is an **unvalidated accuracy experiment**, not a proven accuracy gain. See
 `LAB_6_6_3_OVERLAP.md` for the design and one-run evaluation instructions.
+
+## Staged v6.6.4: Parakeet-style conservative stitching
+
+Version 6.6.4 (code 66004) keeps the full 6.6.3 hybrid pipeline and improves only optional overlap transcript stitching. It uses production Parakeet exact-word matching (24-word context, 12-character 2-word safeguard) and existing `TranscriptCleaner.cleanChunk` pathological repetition cleanup. See `LAB_6_6_4_STITCHING.md` and `VALIDATION_6_6_4.md` for checks and compile status.

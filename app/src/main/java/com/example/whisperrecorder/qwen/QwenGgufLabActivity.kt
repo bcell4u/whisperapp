@@ -204,7 +204,8 @@ class QwenGgufLabActivity : ComponentActivity() {
                         append("Segments: ${result.optInt("segments")}; model loads: ${result.optInt("model_loads")}\n")
                         append("Overlap: ${result.optInt("overlap_seconds")} s; stitched boundaries: " +
                             "${result.optInt("stitched_boundaries")}; duplicate words removed: " +
-                            "${result.optInt("stitched_duplicate_words")}\n")
+                            "${result.optInt("stitched_duplicate_words")}; loop copies removed: " +
+                            "${result.optInt("stitched_repetition_copies_removed")}\n")
                         append("Preprocess: ${result.optLong("preprocess_ms")} ms; QNN encode: ${result.optLong("encoder_ms")} ms\n")
                         append("Native model load: ${result.optLong("model_load_ms")} ms; decoder: ${result.optLong("decoder_ms")} ms\n")
                         append("Tokens: ${result.optInt("generated_tokens")}; EOS segments: ${result.optInt("eos_segments")}\n")

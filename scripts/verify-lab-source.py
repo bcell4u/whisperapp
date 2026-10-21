@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.3\nversionName=6.6.3\nversionCode=66003\n',
-      '6.6.3 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.4\nversionName=6.6.4\nversionCode=66004\n',
+      '6.6.4 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.3 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.4 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -299,6 +299,11 @@ check('language' in cleaner and '<asr_text>' in cleaner,
 stitcher = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcher.kt')
 for marker in ['matchedCount', 'MAX_SEAM_WORDS', 'max downTo 2', 'overlapSeconds == 0']:
     check(marker in stitcher, f'Overlap stitcher missing conservative gate: {marker}')
+check('TranscriptCleaner.cleanChunk' in stitcher and 'MAX_SEAM_WORDS = 24' in stitcher and
+      'TWO_WORD_MIN_MATCH_CHARS = 12' in stitcher and 'count == 2' in stitcher and
+      'cleaned.sumOf { it.repetitionsRemoved }' in stitcher and
+      'stitched_repetition_copies_removed' in log_source,
+      'Parakeet-style conservative stitching/loop cleanup missing')
 check('source.open16kSegmentStream(12, overlapSeconds)' in ui and
       'timedChunk.endMs - source.info.audioStartMs' in ui and
       'overlapControl.isChecked' in ui,
@@ -325,10 +330,10 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.3-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.4-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66003'",
-               "versionName='6.6.3-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66004'",
+               "versionName='6.6.4-dev'", 'apksigner', 'WR_LAB_STORE_FILE']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
@@ -339,4 +344,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.3 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.4 source/workflow static gates (NOT an APK compile)')
