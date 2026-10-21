@@ -1,4 +1,4 @@
-# 6.6.0 EXPERIMENTAL LAB ONLY. Each push to main publishes a new GitHub
+# 6.6.1 EXPERIMENTAL LAB ONLY. Each push to main publishes a new GitHub
 # prerelease after all compile, signing, package ID, and protocol checks pass.
 # Uses the SAME five signing-secret names as the original 6.5.22 workflow.
 # NEVER produces the production applicationId or a stable production release.
@@ -131,7 +131,7 @@ jobs:
           test -n "$ACTUAL" && test "$ACTUAL" = "$EXPECTED" || { echo 'Signing certificate SHA-256 mismatch' >&2; exit 1; }
           echo "WR_LAB_STORE_FILE=$KEYSTORE" >> "$GITHUB_ENV"
           echo 'LAB_STABLE_SIGNING=true' >> "$GITHUB_ENV"
-      - name: Build and test v6.6.0 isolated debug APK
+      - name: Build and test v6.6.1 isolated debug APK
         env:
           WR_LAB_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           WR_LAB_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -148,8 +148,8 @@ jobs:
           test -s "$APK"
           BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK")"
           echo "$BADGING" | grep -F "package: name='com.example.whisperrecorder.qwengguflab.dev'"
-          echo "$BADGING" | grep -F "versionCode='66000'"
-          echo "$BADGING" | grep -F "versionName='6.6.0-dev'"
+          echo "$BADGING" | grep -F "versionCode='66001'"
+          echo "$BADGING" | grep -F "versionName='6.6.1-dev'"
           echo "$BADGING" | grep -F "application: label='Qwen GGUF Lab'"
           python3 - <<'PY'
           from zipfile import ZipFile
@@ -174,28 +174,28 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           SHORT_SHA="${GITHUB_SHA:0:10}"
-          APK_NAME="WhisperRecorder-Qwen-GGUF-Lab-v6.6.0-${SHORT_SHA}.apk"
+          APK_NAME="WhisperRecorder-Qwen-GGUF-Lab-v6.6.1-${SHORT_SHA}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "artifact/$APK_NAME"
           (cd artifact && sha256sum "$APK_NAME" > SHA256SUMS.txt)
           {
-            echo 'WhisperRecorder Qwen GGUF Lab v6.6.0 EXPERIMENTAL / NOT PHONE-QUALIFIED'
+            echo 'WhisperRecorder Qwen GGUF Lab v6.6.1 EXPERIMENTAL / NOT PHONE-QUALIFIED'
             echo "commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
-            echo 'versionName=6.6.0-dev'
-            echo 'versionCode=66000'
+            echo 'versionName=6.6.1-dev'
+            echo 'versionCode=66001'
             echo 'applicationId=com.example.whisperrecorder.qwengguflab.dev'
             echo "stable_signing=${LAB_STABLE_SIGNING:-false}"
             echo "signer_sha256=$LAB_SIGNER_SHA256"
             echo 'native=v0.4.96 arm64 dotprod llama.cpp v0.6.0 d812350'
-            echo 'QNN requires compatible user-supplied encoder; no model included'
+            echo 'QNN/Q8 model weights downloaded on demand or user imported; no models embedded'
             echo 'APK compile status: PASS if and only if this step completes in GitHub Actions'
-            echo 'On-device subprocess and QNN accuracy: NOT TESTED'
+            echo 'On-device diagnostic logging requires new APK phone verification'
           } > artifact/BUILD_PROOF.txt
           echo "LAB_APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
       - name: Upload debug APK as Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: whisperrecorder-qwen-gguf-lab-v6.6.0-${{ github.run_number }}
+          name: whisperrecorder-qwen-gguf-lab-v6.6.1-${{ github.run_number }}
           path: artifact/
           retention-days: 30
           if-no-files-found: error
@@ -205,11 +205,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Pre-release tags cannot consume or overwrite the production v6.6.0 tag.
-          TAG="v6.6.0-lab.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.g${GITHUB_SHA:0:10}"
+          # Pre-release tags cannot consume or overwrite the production v6.6.1 tag.
+          TAG="v6.6.1-lab.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.g${GITHUB_SHA:0:10}"
           gh release create "$TAG" \
             "artifact/$LAB_APK_NAME" artifact/SHA256SUMS.txt artifact/BUILD_PROOF.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "WhisperRecorder Qwen GGUF Lab 6.6.0 ($GITHUB_SHA)" \
-            --notes 'Experimental 6.6.0 QNN encoder + ARM64 dotprod GGUF decoder. Separate lab application ID. Not phone-qualified; private QNN and GGUF models required. All compilation and APK checks must pass before release.' \
+            --title "WhisperRecorder Qwen GGUF Lab 6.6.1 ($GITHUB_SHA)" \
+            --notes 'Experimental 6.6.1 QNN encoder + ARM64 dotprod GGUF decoder. Separate lab application ID. On-device trial completed in v6.6.0; 6.6.1 changes not phone-qualified. Models download on demand. All compilation and APK checks must pass before release.' \
             --prerelease --latest=false

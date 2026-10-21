@@ -1,17 +1,18 @@
-# WhisperRecorder Qwen GGUF Lab 6.6.0 — GitHub prerelease source candidate
+# WhisperRecorder Qwen GGUF Lab 6.6.1 — GitHub prerelease source candidate
 
-**Build status: NOT COMPILED in this handoff.** Local static gates pass; Android Gradle, native
-ARM64 link, APK signing/aapt verification, real S26 QNN runtime and transcription remain **UNTESTED**
-until GitHub Actions succeeds and a single consented phone run is reviewed. This is not a
-production-ready app or a tested APK.
+**Build status for v6.6.1: NOT COMPILED in this environment.** The previous 6.6.0 Lab
+completed an on-device 19-segment QNN/GGUF transcription in 29.38 seconds (user report),
+though M-RoPE equivalence remains unqualified. The updated 6.6.1 logging and prefix-cleaning
+changes are source/JVM-tested only; an APK build in GitHub Actions and a single device check
+are still needed. This is not a production-qualified release.
 
 ## Baseline and identity
 
 - Clean **whisperapp-6.5.22.zip** is the original and sole application baseline, SHA-256
   `08f3475cbb697f9e9dc4c4dccba728dfa4ddeae8242fcdbaa077f07e3b26b3f8`.
-- This lab sets `releaseVersion=6.6.0`, `versionName=6.6.0`, `versionCode=66000` in
+- This lab sets `releaseVersion=6.6.1`, `versionName=6.6.1`, `versionCode=66001` in
   the same original `version.properties` file. The Android debug APK displays
-  `6.6.0-dev`. Its package ID is `com.example.whisperrecorder.qwengguflab.dev`,
+  `6.6.1-dev`. Its package ID is `com.example.whisperrecorder.qwengguflab.dev`,
   which cannot overwrite `com.example.whisperrecorder` even if signed with the same key.
 - Main production UI/recording/transcription classes and transcribenative/parakeetnative
   source remain based on 6.5.22. Only the Lab activity is launchable in this variant;
@@ -45,7 +46,7 @@ production-ready app or a tested APK.
    verifies APK package ID, version, native binaries and signing, and uploads
    an Actions artifact. **Only if all checks pass**, it creates a **GitHub
    prerelease** and attaches the APK, `SHA256SUMS.txt` and `BUILD_PROOF.txt`.
-   Example distinct tag: `v6.6.0-lab.42.1.g123456789a`. A production `v6.6.0`
+   Example distinct tag: `v6.6.1-lab.42.1.g123456789a`. A production `v6.6.1`
    tag is never consumed, overwritten or reused by this Lab workflow.
 4. Builds also support manual **Run workflow** dispatch on `main`. No production
    signing key, recordings, GGUF, QNN model package, or app-private data should
@@ -74,27 +75,29 @@ the actual signer against the expected fingerprint whenever a stable key is used
 GitHub Releases page does **not** make it an update of your production Android
 app, because Android matches BOTH package ID and signing certificate. To offer
 an in-place upgrade from v6.5.22, port qualified changes into the production
-`com.example.whisperrecorder` application ID, build a `6.6.0` APK with code
-`66000` using the **permanent production keystore**, and use production's normal
-`v6.6.0` tag and workflow. Changing the package ID or key after installation
+`com.example.whisperrecorder` application ID, build a `6.6.1` APK with code
+`66001` using the **permanent production keystore**, and use production's normal
+`v6.6.1` tag and workflow. Changing the package ID or key after installation
 requires a one-time uninstall/reinstall and does not automatically migrate data.
 
-## Private files needed on the phone (not included here)
+## Phone-side model files (not included in APK; download or import)
 
 - An exported **Qwen3-ASR-0.6B QNN/HTP encoder package** compatible with the S26
-  QAIRT 2.50 context and 156x1024 `float32` encoder outputs. Import an extracted
-  folder or ZIP using the Lab pickers. Required basenames are:
+  QAIRT 2.50 context and 156x1024 `float32` encoder outputs. Use the Lab
+  **Download missing encoder + Q8 GGUF from Hugging Face** action or import an extracted
+  folder/ZIP manually. Required basenames are:
   `encoder-qnn-fp16.bin`, `tokenizer.json`,
   `golden-synthetic-pcm-12s-f32.raw` (768000 bytes) and
   `golden-synthetic-mel-12s-f32.raw` (614400 bytes). An optional matching
   `model-manifest.json` validates file SHA-256 values if supplied.
 - The matching **Qwen3-ASR-0.6B Q8_0 decoder GGUF** for the above encoder,
-  imported into Lab-private model storage. This is *not* bundled in the APK.
+  downloaded into Lab-private model storage or selected manually. This is *not* bundled in the APK.
 - The user's own roughly 220-second audio recording chosen in Android's picker.
   The app uses bounded 12-second streaming audio chunks and enforces max 20.
 
-The model import, audio, features, runtime data and transcript are never
-copied out of the Lab app or into a production installation. The Lab displays
+The models, audio, features, runtime data and transcript are never
+copied out of the Lab app or into a production installation. The new opt-in
+model downloader uses HTTPS to fetch **model data only**, not user transcripts or audio. The Lab displays
 private decoded text on screen and suppresses native stderr and private paths
 from errors. The only cleanup recursively deletes paths known to be inside
 this Lab's **own private storage/cache**. Uninstalling Lab deletes its models;
@@ -122,6 +125,13 @@ the user's original picker media remains untouched.
 - Never publish personal clinical recordings or transcripts into GitHub Actions,
   logs, Issues or release assets. A single on-device run with only non-sensitive
   performance receipts is enough before deciding on any further change.
+
+## v6.6.1 automatic diagnostic logging
+
+A successful, cancelled, or failed Lab transcription attempt exports metrics to
+`Internal storage/Download/SFSU/Whisperapp/Logs/` using Android scoped
+MediaStore; no transcript or audio is included. See `LAB_6_6_1_LOGGING.md`
+for privacy details and the required first 6.6.1 on-device check.
 
 ## Locally available checks
 

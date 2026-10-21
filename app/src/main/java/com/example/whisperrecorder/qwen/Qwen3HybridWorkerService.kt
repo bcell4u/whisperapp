@@ -264,7 +264,9 @@ class Qwen3HybridWorkerService : Service() {
             require(stats.getInt("segments") == segments && stats.getInt("model_loads") == 1)
             require(tokens.size == segments && eos == segments) { "Native EOS/token receipts incomplete" }
             val tokenizer = Qwen3ByteTokenizer.load(File(QwenLabEncoderAssets.directory(this), "tokenizer.json"))
-            val transcript = (0 until segments).joinToString(" ") { tokenizer.decode(tokens.getValue(it)) }.trim()
+            val transcript = (0 until segments).joinToString(" ") { index ->
+                QwenLabTranscriptCleaner.cleanSegment(tokenizer.decode(tokens.getValue(index)))
+            }.trim()
             return JSONObject().put("transcript", transcript)
                 .put("segments", segments).put("model_loads", stats.getInt("model_loads"))
                 .put("model_load_ms", stats.optLong("model_load_ms"))

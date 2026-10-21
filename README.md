@@ -1,10 +1,19 @@
-# Experimental Qwen GGUF Lab v6.6.0 (from clean v6.5.22)
+# Experimental Qwen GGUF Lab v6.6.1 (from clean v6.5.22)
 
 **Resource upload repair (CI run 107112949945):** If GitHub reports `MISSING app/src/main/res/xml/lab_data_extraction_rules.xml`, restore the complete `app/src/main/res` folder from this source ZIP; see [LAB_6_6_RESOURCE_RECOVERY.md](LAB_6_6_RESOURCE_RECOVERY.md). The Lab verifier checks all 24 XML resources together.
 
 **Existing GitHub repository migration:** If `.github/workflows/build.yml` remains from production, remove it with `bash scripts/activate-lab-workflow.sh` in a Git clone/Codespaces checkout (or delete the file in GitHub's web editor). See [LAB_GITHUB_MIGRATION.md](LAB_GITHUB_MIGRATION.md). This prevents the production build from running instead of the new Lab auto-release workflow.
 
-**This repository is a separately installable, not-yet-compiled Android source candidate.** See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md) for setup, automatic GitHub prereleases, original signing-secret compatibility, required user-supplied models, and unverified Android/phone gates. The documentation below describes the unchanged production v6.5.22 baseline rather than the experimental launcher.
+**This repository is a separately installable experimental Lab source project.** See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md) for setup, automatic GitHub prereleases, original signing-secret compatibility, required user-supplied models, and unverified Android/phone gates. The historical documentation below describes the clean production v6.5.22 baseline rather than the experimental launcher. The 6.6.0 Lab has produced one on-device 19-segment transcript; the new 6.6.1 changes are not yet phone verified.
+
+## What's new in 6.6.1
+
+- Removes only the literal `language English<asr_text>`-style Qwen protocol header from the beginning of each separately decoded segment. Transcription inference, four-thread dot-product decoder, Q8 GGUF and QNN model paths are unchanged.
+- Automatically writes a diagnostics-only `.log` after completed, failed, or cancelled transcription attempts to **Internal storage/Download/SFSU/Whisperapp/Logs** through Android MediaStore Downloads. The app shows the saved filename or a non-sensitive save error.
+- Logs contain stage/timing/token/EOS/RSS/provider-reported metrics; **not** transcripts, recordings, model file paths or token IDs. There are no additional storage permissions.
+- Bumps version to `6.6.1-dev` / code `66001`. A successful push to `main` runs GitHub Actions and publishes a new isolated prerelease APK. APK compilation and this new logging behavior must still be verified for 6.6.1.
+
+See [LAB_6_6_1_LOGGING.md](LAB_6_6_1_LOGGING.md) for logs, setup and test checklist.
 
 ---
 

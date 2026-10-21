@@ -101,7 +101,8 @@ class QwenGgufLabActivity : ComponentActivity() {
             textSize = 15f
             text = "Download the required encoder + Q8 GGUF above, or import your own " +
                 "compatible encoder folder/ZIP and Q8 GGUF. Then select lecture audio. " +
-                "The models remain private; the transcript is not uploaded."
+                "The models remain private; the transcript is not uploaded. " +
+                "After each attempt, a diagnostics-only log is saved to Download/SFSU/Whisperapp/Logs."
             setTextIsSelectable(true)
         }
         layout.addView(output)
@@ -117,18 +118,29 @@ class QwenGgufLabActivity : ComponentActivity() {
         }
         if (!busy.compareAndSet(false, true)) return
         run.isEnabled = false
+        downloadCancelled.set(false)
         Thread({
+            val attemptStartedEpochMs = System.currentTimeMillis()
+            val attemptStartedElapsedMs = android.os.SystemClock.elapsedRealtime()
+            var phase = QwenLabDiagnosticLog.Phase.IMPORT_MODEL
+            var status = QwenLabDiagnosticLog.Status.FAILED
+            var errorClass: String? = null
+            var completedSegments = 0
+            var completedResult: JSONObject? = null
             try {
                 // Lab app has its own application ID and private storage. This copy cannot
                 // replace a GGUF in the installed production app or a user-owned SAF file.
                 modelUri?.let { importModel(it) }
                 val started = android.os.SystemClock.elapsedRealtime()
+                phase = QwenLabDiagnosticLog.Phase.CONNECT
                 Qwen3HybridClient.connect(this).use { client ->
                     activeClient = client
+                    phase = QwenLabDiagnosticLog.Phase.PREPARE
                     val config = QwenDecoderRunConfig(4, false, false, false)
                     val prepared = client.prepareGgufLab(config)
                     check(prepared.optBoolean("ok")) { "QNN/GGUF prepare failed: ${prepared.optString("error").take(160)}" }
                     val audio = requireNotNull(selectedAudio)
+                    phase = QwenLabDiagnosticLog.Phase.DECODE_AUDIO
                     PcmDecoder.prepare(this, audio).use { source ->
                         // Some SAF/media providers omit duration; enforce the actual segment bound below.
                         require(source.info.durationMs <= 0L || source.info.durationMs <= 240_000L) {
@@ -137,8 +149,10 @@ class QwenGgufLabActivity : ComponentActivity() {
                         source.open16kSegmentStream(12).use { stream ->
                             var segments = 0
                             while (stream.hasNext()) {
+                                check(!downloadCancelled.get()) { "Lab cancelled" }
                                 check(segments < 20) { "More than twenty segments is not supported" }
                                 val chunk = stream.next().samples
+                                phase = QwenLabDiagnosticLog.Phase.ENCODE_QNN
                                 SharedMemory.create("qwen-gguf-lab-pcm", chunk.size * 4).use { shared ->
                                     val writable = shared.mapReadWrite().order(ByteOrder.nativeOrder())
                                     try { writable.asFloatBuffer().put(chunk) }
@@ -150,13 +164,19 @@ class QwenGgufLabActivity : ComponentActivity() {
                                     }
                                 }
                                 segments++
+                                completedSegments = segments
                                 showMessage("QNN encoded $segments audio segments. Decoder model loads only once at the end.")
                             }
                             require(segments in 2..20)
                         }
                     }
+                    check(!downloadCancelled.get()) { "Lab cancelled" }
+                    phase = QwenLabDiagnosticLog.Phase.DECODE_GGUF
                     val result: JSONObject = client.finishGgufLab()
                     check(result.optBoolean("ok")) { "Native decoder failed: ${result.optString("error").take(160)}" }
+                    completedResult = result
+                    status = QwenLabDiagnosticLog.Status.SUCCESS
+                    phase = QwenLabDiagnosticLog.Phase.COMPLETE
                     showMessage(buildString {
                         append("ON-DEVICE EXPERIMENTAL QNN + DOTPROD Q8 GGUF\n\n")
                         append("Segments: ${result.optInt("segments")}; model loads: ${result.optInt("model_loads")}\n")
@@ -171,11 +191,29 @@ class QwenGgufLabActivity : ComponentActivity() {
                     })
                 }
             } catch (t: Throwable) {
+                status = if (downloadCancelled.get()) QwenLabDiagnosticLog.Status.CANCELLED
+                         else QwenLabDiagnosticLog.Status.FAILED
+                errorClass = t.javaClass.simpleName
                 // Never print model paths, raw audio, private token IDs, or transcripts in errors.
                 showMessage("Lab test stopped: ${t.javaClass.simpleName}. " +
                     "Check that the QNN encoder files were imported into this Lab app, the Q8 file is valid, " +
                     "and Android permits executing the bundled ARM64 decoder. No production app data was changed.")
             } finally {
+                // Log on success, failure and cancellation; never log transcript or inputs.
+                val logResult = runCatching {
+                    QwenLabDiagnosticLog.save(this, QwenLabDiagnosticLog.RunReport(
+                        attemptStartedEpochMs,
+                        android.os.SystemClock.elapsedRealtime() - attemptStartedElapsedMs,
+                        status, phase, completedSegments, errorClass, completedResult
+                    ))
+                }
+                runOnUiThread {
+                    val note = logResult.fold(
+                        onSuccess = { "\n\nDiagnostic log saved: Download/SFSU/Whisperapp/Logs/$it" },
+                        onFailure = { "\n\nDiagnostic log could not be saved (${it.javaClass.simpleName})." }
+                    )
+                    output.append(note)
+                }
                 activeClient = null
                 busy.set(false)
                 runOnUiThread { run.isEnabled = true }
