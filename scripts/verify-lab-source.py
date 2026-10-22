@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.20\nversionName=6.6.20\nversionCode=66020\n',
-      '6.6.20 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.21\nversionName=6.6.21\nversionCode=66021\n',
+      '6.6.21 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.20 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.21 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,22 +360,30 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.20-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.21-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66020'",
-               "versionName='6.6.20-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66021'",
+               "versionName='6.6.21-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.20 pinned BF16 tensor identity comparison; not a phone change.
+# 6.6.21 large-tokenizer-array repair and pinned tensor identity audit; no phone change.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
 for marker in ('workflow_dispatch:', 'WEIGHT_IDENTITY_REPORT.json',
-               'qwen-6.6.20-hf-gguf-weight-identity-',
+               'qwen-6.6.21-hf-gguf-weight-identity-',
                'scripts/audit-qwen-gguf-hf-weights.py',
                'scripts/test-qwen-weight-identity.py',
                '12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50',
                '6aa69c382e2b426eee1f5870d4c95859a74b6445',
                'whole_model_weight_identity=NOT_VERIFIED'):
     check(marker in host_workflow, f'BF16 weight identity workflow missing {marker}')
+parser = read('scripts/audit-qwen-gguf-hf-weights.py')
+for marker in ('LIMIT_ARRAY = 2000000', 'skip_metadata_value',
+               'def skip_text(self)', 'return [\'ARRAY_COUNT\', length]'):
+    check(marker in parser, f'6.6.21 large-GGUF-tokenizer parser repair missing {marker}')
+weight_test = read('scripts/test-qwen-weight-identity.py')
+for marker in ('LARGE_REALISTIC_TOKENIZER_ARRAY', 'GGUF_EXCESSIVE_ARRAY_LENGTH',
+               'INVALID_OR_TRUNCATED_BINARY_HEADER'):
+    check(marker in weight_test, f'6.6.21 oversized metadata regression missing {marker}')
 for fn in ('scripts/produce-qwen-hf-reference.py',
            'scripts/evaluate-qwen-independent-reference.py',
            'scripts/test-qwen-independent-reference.py',
@@ -460,4 +468,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.20 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.21 source/workflow static gates (NOT an APK compile)')

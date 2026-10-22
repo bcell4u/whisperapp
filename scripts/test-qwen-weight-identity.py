@@ -21,7 +21,7 @@ def s(v):
     b=v.encode();return u64(len(b))+b
 
 
-def make_files(root):
+def make_files(root, tokenizer_entries=0, numeric_entries=0):
     tensors=[]
     for layer in range(10):
         for g,h in [('attn_v.weight','self_attn.v_proj.weight'),
@@ -41,8 +41,22 @@ def make_files(root):
     hpath=root/'synthetic.safetensors'
     hpath.write_bytes(u64(len(header))+header+hf_data)
     metadata=s('general.architecture')+u32(8)+s('qwen3vl')
+    metadata_count=1
+    if tokenizer_entries:
+        # LARGE_REALISTIC_TOKENIZER_ARRAY: real Qwen vocabulary arrays exceed
+        # 100,000 strings. Verify successful skip AND subsequent KV alignment.
+        metadata+=s('tokenizer.ggml.tokens')+u32(9)+u32(8)+u64(tokenizer_entries)
+        metadata+=(u64(1)+b'a')*tokenizer_entries
+        metadata_count+=1
+    if numeric_entries:
+        metadata+=s('tokenizer.ggml.token_type')+u32(9)+u32(4)+u64(numeric_entries)
+        metadata+=u32(1)*numeric_entries
+        metadata_count+=1
+    if tokenizer_entries or numeric_entries:
+        metadata+=s('general.alignment')+u32(4)+u32(32)
+        metadata_count+=1
     # v3 GGUF: magic version tensor_count kv_count, followed by key-value table.
-    raw=b'GGUF'+u32(3)+u64(len(tensors))+u64(1)+metadata
+    raw=b'GGUF'+u32(3)+u64(len(tensors))+u64(metadata_count)+metadata
     packed=bytearray();
     for name,_,data in tensors:
         raw+=s(name)+u32(2)+u64(4)+u64(2)+u32(30)+u64(len(packed))
@@ -86,8 +100,42 @@ with tempfile.TemporaryDirectory() as td:
     report=a.audit(gguf2,hf2,verify_hashes=False)
     assert report['status']=='INCONCLUSIVE_INCOMPATIBLE_NAMED_TENSORS',report
     assert report['incompatible_named_tensors']==1,report
+    # Regression for the real 6.6.20 CI failure. Tokenizer arrays can be
+    # larger than 100k entries and must be streamed/skipped without allocation.
+    large,hlarge=make_files(root,tokenizer_entries=151936,numeric_entries=151936)
+    with large.open('rb') as file:
+        import mmap
+        with mmap.mmap(file.fileno(),0,access=mmap.ACCESS_READ) as binary:
+            version,meta,tensors=a.parse_gguf(binary)
+            assert version==3
+            assert meta['tokenizer.ggml.tokens']==['ARRAY_COUNT',151936]
+            assert meta['tokenizer.ggml.token_type']==['ARRAY_COUNT',151936]
+            assert meta['general.alignment']==32
+            assert len(tensors)==30
+    report=a.audit(large,hlarge,verify_hashes=False)
+    assert report['status']=='AUDITED_TENSORS_BYTE_IDENTICAL',report
+    assert report['byte_identical_tensors']==30,report
+    # Malformed claimed counts and truncated data must still fail closed.
+    corrupted=bytearray(large.read_bytes())
+    target=u32(9)+u32(8)+u64(151936)
+    pos=corrupted.index(target)
+    corrupted[pos+8:pos+16]=u64(a.LIMIT_ARRAY+1)
+    try:a.parse_gguf(corrupted)
+    except ValueError as e:assert 'GGUF_EXCESSIVE_ARRAY_LENGTH' in str(e),e
+    else:raise AssertionError('oversized metadata count passed')
+    # The skip logic must enforce file bounds, even for large scalar arrays.
+    corrupt_scalar=b'GGUF'+u32(3)+u64(0)+u64(1)+s('numeric')+u32(9)+u32(4)+u64(1000)+u32(1)
+    try:a.parse_gguf(corrupt_scalar)
+    except ValueError as e:assert 'INVALID_OR_TRUNCATED_BINARY_HEADER' in str(e),e
+    else:raise AssertionError('truncated scalar array passed')
+    # Large string arrays must not use 1e5 temporary decoded strings.
+    corrupt_string=b'GGUF'+u32(3)+u64(0)+u64(1)+s('tokenizer.ggml.tokens')+u32(9)+u32(8)+u64(17)+u64(1)+b'a'
+    try:a.parse_gguf(corrupt_string)
+    except ValueError as e:assert 'INVALID_OR_TRUNCATED_BINARY_HEADER' in str(e),e
+    else:raise AssertionError('truncated string array passed')
+
     with gguf.open('r+b') as f:f.seek(0);f.write(b'BAD!')
     try:a.audit(gguf,hf,verify_hashes=False)
     except ValueError as e:assert 'GGUF_MAGIC_MISMATCH' in str(e)
     else:raise AssertionError('bad GGUF magic accepted')
-print('PASS 6.6.20 weight identity audit: synthetic exact, mismatched weight, hash contract, corrupt header')
+print('PASS 6.6.21 weight audit: real-sized tokenizer arrays, zero-copy skipping, exact tensor comparison, malformed array guards and pinned hashes')

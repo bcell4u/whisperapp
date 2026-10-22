@@ -1,4 +1,4 @@
-# 6.6.20 HOST ONLY: exact-weight provenance audit, no Android inference changes.
+# 6.6.21 HOST ONLY: exact-weight provenance audit, no Android inference changes.
 name: Qwen HF versus GGUF BF16 weight identity
 on:
   push:
@@ -7,7 +7,7 @@ on:
       - 'scripts/audit-qwen-gguf-hf-weights.py'
       - 'scripts/test-qwen-weight-identity.py'
       - 'scripts/produce-qwen-hf-reference.py'
-      - 'LAB_6_6_20_WEIGHT_IDENTITY.md'
+      - 'LAB_6_6_21_WEIGHT_PARSER_REPAIR.md'
       - '.github/workflows/qwen-host-reference-verification.yml'
   workflow_dispatch:
 permissions:
@@ -78,7 +78,7 @@ jobs:
           import json
           from pathlib import Path
           Path('artifact/WEIGHT_IDENTITY_REPORT.json').write_text(json.dumps({
-            'schema':1,'release':'6.6.20','status':'INCONCLUSIVE',
+            'schema':1,'release':'6.6.21','status':'INCONCLUSIVE',
             'reason':'SOURCE_CHECK_DOWNLOAD_CHECKSUM_OR_TENSOR_AUDIT_FAILED',
             'model_weight_identity':'NOT_VERIFIED',
             'official_mrope_parity':'UNQUALIFIED',
@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.20 exact BF16 tensor audit'
+            echo 'WhisperRecorder 6.6.21 exact BF16 tensor audit'
             echo "lab_commit=$GITHUB_SHA"
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
             echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
@@ -107,7 +107,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.20-hf-gguf-weight-identity-${{ github.run_number }}
+          name: qwen-6.6.21-hf-gguf-weight-identity-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14

@@ -19,7 +19,7 @@ HF_SHA = 'd3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
 HF_REV = '6aa69c382e2b426eee1f5870d4c95859a74b6445'
 LIMIT_TENSORS = 10000
 LIMIT_KV = 10000
-LIMIT_ARRAY = 100000
+LIMIT_ARRAY = 2000000  # GGUF tokenizer arrays can contain >150k entries
 
 
 def sha256_file(path):
@@ -42,29 +42,75 @@ class BinaryReader:
         return x
     def unpack(self, fmt):
         return struct.unpack('<'+fmt, self.read(struct.calcsize('<'+fmt)))[0]
-    def text(self):
+    def skip(self, n):
+        # Skip metadata without creating large temporary strings or lists.
+        if n < 0 or self.p+n > len(self.raw):
+            raise ValueError('INVALID_OR_TRUNCATED_BINARY_HEADER')
+        self.p += n
+    def string_length(self):
         n = self.unpack('Q')
         if n > 1024*1024:
             raise ValueError('GGUF_EXCESSIVE_STRING_LENGTH')
-        return self.read(n).decode('utf-8')
+        return n
+    def text(self):
+        return self.read(self.string_length()).decode('utf-8')
+    def skip_text(self):
+        self.skip(self.string_length())
+
+
+# GGUF scalar metadata codes. Unknown codes must fail closed even inside
+# skipped arrays; successful skipping must never desynchronize tensor offsets.
+SCALAR_TYPES = {0:'b',1:'B',2:'h',3:'H',4:'i',5:'I',6:'f',7:'?',10:'Q',11:'q',12:'d'}
+
+
+def array_header(r):
+    kind, length = r.unpack('I'), r.unpack('Q')
+    if length > LIMIT_ARRAY:
+        raise ValueError('GGUF_EXCESSIVE_ARRAY_LENGTH')
+    if kind not in SCALAR_TYPES and kind not in (8,9):
+        raise ValueError('UNSUPPORTED_GGUF_METADATA_TYPE_'+str(kind))
+    return kind, length
+
+
+def skip_metadata_value(r, typ, depth=0):
+    """Advance through large tokenizer metadata without allocating it."""
+    if depth > 4:
+        raise ValueError('GGUF_METADATA_DEPTH_EXCEEDED')
+    if typ in SCALAR_TYPES:
+        r.skip(struct.calcsize('<'+SCALAR_TYPES[typ]))
+    elif typ == 8:
+        r.skip_text()
+    elif typ == 9:
+        kind, length = array_header(r)
+        if kind in SCALAR_TYPES:
+            r.skip(struct.calcsize('<'+SCALAR_TYPES[kind])*length)
+        else:
+            for _ in range(length):
+                skip_metadata_value(r, kind, depth+1)
+    else:
+        raise ValueError('UNSUPPORTED_GGUF_METADATA_TYPE_'+str(typ))
 
 
 def metadata_value(r, typ, depth=0):
     if depth > 4:
         raise ValueError('GGUF_METADATA_DEPTH_EXCEEDED')
-    scalar = {0:'b',1:'B',2:'h',3:'H',4:'i',5:'I',6:'f',7:'?',10:'Q',11:'q',12:'d'}
-    if typ in scalar:
-        return r.unpack(scalar[typ])
+    if typ in SCALAR_TYPES:
+        return r.unpack(SCALAR_TYPES[typ])
     if typ == 8:
         return r.text()
     if typ == 9:
-        kind, length = r.unpack('I'), r.unpack('Q')
-        if length > LIMIT_ARRAY:
-            raise ValueError('GGUF_EXCESSIVE_ARRAY_LENGTH')
-        vals = [metadata_value(r, kind, depth+1) for _ in range(length)]
-        return vals if length <= 16 else ['ARRAY_COUNT', length]
+        kind, length = array_header(r)
+        # Only tiny arrays are ever retained. Tokenizer tokens/merges (often
+        # ~150k strings) are checked and skipped without storing their bytes.
+        if length > 16:
+            if kind in SCALAR_TYPES:
+                r.skip(struct.calcsize('<'+SCALAR_TYPES[kind])*length)
+            else:
+                for _ in range(length):
+                    skip_metadata_value(r, kind, depth+1)
+            return ['ARRAY_COUNT', length]
+        return [metadata_value(r, kind, depth+1) for _ in range(length)]
     raise ValueError('UNSUPPORTED_GGUF_METADATA_TYPE_'+str(typ))
-
 
 def parse_gguf(raw):
     r=BinaryReader(raw)
