@@ -1,0 +1,102 @@
+# Separate expensive reference experiment. Start from Actions > Qwen host
+# decoder reference > Run workflow. This job never publishes or signs an APK.
+name: Qwen host decoder reference
+on:
+  workflow_dispatch:
+    inputs:
+      llama_revision:
+        description: 'Independent host llama.cpp library revision'
+        required: true
+        type: choice
+        options:
+          - v0.6.0
+          - master
+        default: v0.6.0
+permissions:
+  contents: read
+jobs:
+  synthetic-host-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Lab source and S26 synthetic verification fixtures
+        uses: actions/checkout@v4
+      - name: Validate fixture identity and reference evaluator failures
+        run: |
+          set -euo pipefail
+          python3 scripts/test-qwen-external-reference.py
+      - name: Install reproducible CPU build tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libcurl4-openssl-dev
+      - name: Fetch official upstream llama.cpp for independent host bridge
+        env:
+          LLAMA_REVISION: ${{ inputs.llama_revision }}
+        run: |
+          set -euo pipefail
+          case "$LLAMA_REVISION" in v0.6.0|master) ;; *) echo 'Unapproved upstream revision' >&2; exit 2;; esac
+          git clone --quiet --depth 1 --branch "$LLAMA_REVISION" \
+            https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama-host"
+          REVISION="$(git -C "$RUNNER_TEMP/llama-host" rev-parse HEAD)"
+          if [ "$LLAMA_REVISION" = v0.6.0 ]; then
+            test "${REVISION:0:7}" = d812350 || { echo 'Pinned llama.cpp tag changed'; exit 1; }
+          fi
+          echo "REFERENCE_LLAMA_REV=$REVISION" >> "$GITHUB_ENV"
+      - name: Compile separate host C++ batch reference (no Android decoder source)
+        run: |
+          set -euo pipefail
+          cmake -S verification/host -B "$RUNNER_TEMP/qwen-ref-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+          cmake --build "$RUNNER_TEMP/qwen-ref-build" --target qwen-sliced-reference --parallel 4
+          test -x "$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
+      - name: Download exact public Q8 GGUF temporarily and verify SHA-256
+        run: |
+          set -euo pipefail
+          MODEL="$RUNNER_TEMP/Qwen3-ASR-0.6B-Q8_0.gguf"
+          curl --fail --location --retry 4 --retry-all-errors \
+            --connect-timeout 30 --max-time 3600 \
+            -o "$MODEL" \
+            'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf?download=true'
+          echo "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971  $MODEL" | sha256sum -c -
+          echo "QWEN_REFERENCE_MODEL=$MODEL" >> "$GITHUB_ENV"
+      - name: Compute split-batch reference logits, replay, and audio-axis perturbation
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/host-linear4 artifact/host-replay artifact/host-axis-shift
+          EXE="$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
+          FEATURES=verification/fixtures/s26-synthetic-features.f32le
+          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-linear4 linear4
+          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-replay linear4
+          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-axis-shift audio-axis-shift
+          python3 scripts/evaluate-qwen-reference.py \
+            --fixtures verification/fixtures --primary artifact/host-linear4 \
+            --replay artifact/host-replay --shifted artifact/host-axis-shift \
+            --llama-revision "$REFERENCE_LLAMA_REV" --output artifact/REFERENCE_REPORT.json
+      - name: Save reference provenance and explicitly unqualified conclusion
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          {
+            echo 'WhisperRecorder 6.6.8 experimental synthetic-only host diagnostic'
+            echo "lab_commit=$GITHUB_SHA"
+            echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
+            echo 'S26 GGUF SHA256=bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971'
+            echo 'S26 features SHA256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
+            echo 'S26 prefill SHA256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
+            echo 'REFERENCE_KIND=HOST_LLAMA_CPP_STANDARD_BATCH_PATH'
+            echo 'MODEL_MATH_INDEPENDENT=false'
+            echo 'OFFICIAL_QWEN_PARITY=NOT_VERIFIED'
+            echo 'MROPE_PARITY=UNQUALIFIED'
+            echo 'Only step-00 has corresponding S26 logits. Steps 01-04 are host reference baselines.'
+          } > artifact/PROVENANCE.txt
+      - name: Upload synthetic-only reference numerical results even if comparison fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwen-6.6.8-host-reference-${{ github.run_number }}
+          path: artifact/
+          retention-days: 14
+          if-no-files-found: error

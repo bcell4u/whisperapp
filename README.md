@@ -1,3 +1,11 @@
+# WhisperRecorder 6.6.8 — hosted reference decoder diagnostic
+
+This update adds a **separate manually triggered GitHub Actions reference runner**. Normal on-device QNN encoding and four-thread dotprod Q8 decoding are byte-for-byte unchanged from 6.6.7. The Lab APK is still produced automatically on a push to `main`. The host reference is a second implementation of the **bridge/input batching** and uses the standard `llama_batch`/`llama_decode` API, **but uses the same underlying upstream llama.cpp mathematical kernels**. It cannot by itself certify official Qwen M-RoPE or numerical correctness.
+
+To run once: GitHub repo > **Actions > Qwen host decoder reference > Run workflow**; choose `v0.6.0` first. It downloads the exact public Q8 GGUF into the ephemeral runner, verifies SHA-256, compiles a standalone CPU host program, computes 5 logits checkpoints (prefill + 4 fixed synthetic teacher-forced tokens), tests repeatability and perturbed audio position axes, compares the prefills to the S26 export and saves `REFERENCE_REPORT.json`, vectors, and `PROVENANCE.txt` to an Actions artifact. The 800MB GGUF is never added to the repository or artifact.
+
+See `LAB_6_6_8_HOST_REFERENCE.md` for details and interpretation. No new phone transcription is needed.
+
 # 6.6.7 experimental numerical decoder checkpoint
 
 The new **synthetic-only** decoder-verification path exports the first-token FP32 logit vector and tests bitwise numerical replay across a KV-cache reset. It keeps lecture inference and the existing one-second-overlap toggle unchanged. See [LAB_6_6_7_LOGIT_CHECKPOINTS.md](LAB_6_6_7_LOGIT_CHECKPOINTS.md). Independent M-RoPE/logit parity is NOT established.
