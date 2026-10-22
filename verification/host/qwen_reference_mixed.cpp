@@ -56,7 +56,12 @@ struct MixedBatch {
     MixedBatch(const MixedBatch &) = delete;
     MixedBatch & operator=(const MixedBatch &) = delete;
 };
-void run(llama_context * ctx, const std::vector<float> & audio, const std::filesystem::path & folder, const std::string & mode) {
+// Input-kind controls keep the prompt length and M-RoPE position map unchanged.
+// "zero": replace original synthetic audio embeddings with all-zero FP32 embeddings.
+// "text-filler": replace each of the 156 middle positions with ordinary text token 198.
+// They are mathematical controls ONLY, not valid speech-recognition prompts.
+void run(llama_context * ctx, const std::vector<float> & audio, const std::filesystem::path & folder,
+         const std::string & mode, const std::string & input_kind) {
     const bool cut_after_prefix = mode == "three-stage" || mode == "audio-suffix";
     const bool cut_after_audio = mode == "three-stage" || mode == "prefix-audio";
     MixedBatch batch(ctx);
@@ -80,9 +85,17 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
                 "CHUNKED_PREFIX_FAILED");
         llama_batch_ext_clear(batch.value);
     }
+    const std::vector<float> zero_audio(input_kind == "zero" ? size_t(kAudio)*kDim : 0, 0.0f);
     for (int i = 0; i < kAudio; ++i) {
-        llama_embd value{audio.data() + static_cast<size_t>(i)*kDim, 1, kDim};
-        set_position(llama_batch_ext_add_embd(batch.value, 0, value));
+        if (input_kind == "text-filler") {
+            // Token 198 is a well-defined ordinary newline token in this GGUF.
+            // A text-only middle span isolates generic batching from embedding handling.
+            add_token(198);
+        } else {
+            const float * source = input_kind == "zero" ? zero_audio.data() : audio.data();
+            llama_embd value{source + static_cast<size_t>(i)*kDim, 1, kDim};
+            set_position(llama_batch_ext_add_embd(batch.value, 0, value));
+        }
     }
     if (cut_after_audio) {
         require(llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.value) == 0,
@@ -109,16 +122,18 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 } // namespace
 
 int main(int argc, char ** argv) {
-    if (argc != 5 && argc != 7) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4]\n", argv[0]);
+    if (argc != 5 && argc != 7 && argc != 8) {
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler]]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
     if (mode != "unified" && mode != "three-stage" && mode != "prefix-audio" && mode != "audio-suffix") return 2;
+    const std::string input_kind = argc == 8 ? argv[7] : "original";
+    if (input_kind != "original" && input_kind != "zero" && input_kind != "text-filler") return 2;
     // Explicit allowlist, fail closed on malformed host-test configurations.
     int ubatch = 256;
     int threads = 4;
-    if (argc == 7) {
+    if (argc >= 7) {
         const std::string ub = argv[5];
         const std::string th = argv[6];
         if (ub != "64" && ub != "128" && ub != "160" && ub != "192" && ub != "256") return 2;
@@ -149,11 +164,11 @@ int main(int argc, char ** argv) {
         ctx_params.n_threads_batch = threads;
         ctx = llama_init_from_model(model, ctx_params);
         require(ctx != nullptr, "CONTEXT_INIT_FAILED");
-        run(ctx, features, argv[3], mode);
+        run(ctx, features, argv[3], mode, input_kind);
         llama_free(ctx);
         llama_model_free(model);
         llama_backend_free();
-        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d steps=5 model_math_independent=false\n", mode.c_str(), ubatch, threads);
+        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d input_kind=%s steps=5 model_math_independent=false\n", mode.c_str(), ubatch, threads, input_kind.c_str());
         return 0;
     } catch (const std::exception & e) {
         std::fprintf(stderr, "INCONCLUSIVE_MIXED_HOST: %s\n", e.what());

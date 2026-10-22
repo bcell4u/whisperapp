@@ -1,3 +1,20 @@
+# WhisperRecorder 6.6.14 — input-kind isolation (host-only)
+
+**Android transcription is unchanged.** The real 6.6.13 GitHub artifact showed
+microbatch thresholds at the 156-frame middle input and 171-position complete
+prompt. This release runs three synthetic-only input controls (original features,
+zero audio embeddings, ordinary text filler tokens), using fixed 128/256
+microbatches, the same Q8 GGUF, one pinned llama.cpp revision and 4 CPU threads.
+
+The GitHub workflow **Qwen host input modality isolation** automatically runs
+when the updated project is pushed to `main`; upload the
+`qwen-6.6.14-host-input-kind-*` artifact for analysis. No phone test is needed.
+See `LAB_6_6_14_INPUT_KIND_ISOLATION.md` for controls and limits. The runner is
+not an independent implementation of model mathematics, and M-RoPE remains
+unqualified. The full Android build still requires successful GitHub Actions.
+
+---
+
 # WhisperRecorder 6.6.13 — microbatch thresholds around audio and prompt lengths
 
 The 6.6.12 GitHub artifact showed microbatch-sensitive logits but no sensitivity

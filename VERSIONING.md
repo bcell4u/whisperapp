@@ -1,3 +1,6 @@
+## v6.6.14 (versionCode 66014)
+Synthetic-only input modality control: original features, all-zero audio embeddings, and 156 ordinary text filler tokens. Compare unified/three-stage 128 vs 256 microbatches on pinned host Q8 model. Android transcription path unchanged.
+
 ## v6.6.13 (versionCode 66013)
 Host-only numerical probe at n_ubatch=64,128,160,192,256, pinned four-thread
 CPU/256 n_batch and original 156-frame/171-position synthetic fixture.
