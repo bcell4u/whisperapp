@@ -110,7 +110,7 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 
 int main(int argc, char ** argv) {
     if (argc != 5 && argc != 7) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=256 THREADS=4]\n", argv[0]);
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
@@ -121,7 +121,7 @@ int main(int argc, char ** argv) {
     if (argc == 7) {
         const std::string ub = argv[5];
         const std::string th = argv[6];
-        if (ub != "64" && ub != "256") return 2;
+        if (ub != "64" && ub != "128" && ub != "160" && ub != "192" && ub != "256") return 2;
         if (th != "1" && th != "4") return 2;
         ubatch = std::atoi(argv[5]);
         threads = std::atoi(argv[6]);

@@ -1,3 +1,15 @@
+# WhisperRecorder 6.6.13 — microbatch thresholds around audio and prompt lengths
+
+The 6.6.12 GitHub artifact showed microbatch-sensitive logits but no sensitivity
+to one versus four CPU threads. This release holds thread count at four and
+compares 64/128/160/192/256 microbatches around the 156-frame audio tensor and
+171-position synthetic prompt. The **Android decoder remains unchanged**.
+Automatic host workflow output: `qwen-6.6.13-host-microbatch-threshold-*`.
+Read `LAB_6_6_13_MICROBATCH_THRESHOLD.md` for controls and limitations.
+Independent official Qwen/M-RoPE parity remains unqualified.
+
+---
+
 # WhisperRecorder 6.6.12 — same-host execution sensitivity
 
 **The on-device Android ASR path remains unchanged.** 6.6.11 demonstrated that all four prompt prefill arrangements produce distinct host logits with one fixed four-thread / 256-token microbatch configuration; the four arrangements agreed on top-1 tokens and were repeatable, but none were numerically identical to the S26. The new 6.6.12 GitHub-hosted test compares *unified* versus *three-stage* input batching under **three fixed compute configurations**:

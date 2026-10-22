@@ -1,3 +1,9 @@
+## v6.6.13 (versionCode 66013)
+Host-only numerical probe at n_ubatch=64,128,160,192,256, pinned four-thread
+CPU/256 n_batch and original 156-frame/171-position synthetic fixture.
+Android native transcription is unchanged. Full APK compilation and host GGUF
+execution require the GitHub Actions workflows; local checks are not APK proof.
+
 # 6.6.12 — host-only microbatch and CPU thread sensitivity
 
 versionName 6.6.12 / versionCode 66012. Compared with 6.6.11, only host synthetic decoder arguments, host workflow, host comparison/test scripts, release metadata, and documentation are changed. **Android native decoder, Java/Kotlin ASR, QNN execution, stitcher, signing configuration, and model backup logic remain untouched.** Actual APK compilation and actual model inference require GitHub Actions.

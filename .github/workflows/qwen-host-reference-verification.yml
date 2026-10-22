@@ -1,6 +1,6 @@
-# 6.6.12 same-host microbatch/thread sensitivity. Android decoder and GGUF remain unchanged.
+# 6.6.13 threshold isolation near 156 audio frames / 171 prompt positions. Android decoder remains unchanged.
 # Runs automatically when diagnostic code changes on main, or by manual dispatch.
-name: Qwen host execution sensitivity
+name: Qwen host microbatch threshold isolation
 on:
   push:
     branches: [main]
@@ -15,6 +15,8 @@ on:
       - 'scripts/test-qwen-boundary-isolation.py'
       - 'scripts/evaluate-qwen-execution-sensitivity.py'
       - 'scripts/test-qwen-execution-sensitivity.py'
+      - 'scripts/evaluate-qwen-microbatch-threshold.py'
+      - 'scripts/test-qwen-microbatch-threshold.py'
       - '.github/workflows/qwen-host-reference-verification.yml'
   workflow_dispatch:
     inputs:
@@ -29,7 +31,7 @@ on:
 permissions:
   contents: read
 jobs:
-  synthetic-host-execution-sensitivity:
+  synthetic-host-microbatch-threshold:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -43,6 +45,7 @@ jobs:
           python3 scripts/test-qwen-chunk-isolation.py
           python3 scripts/test-qwen-boundary-isolation.py
           python3 scripts/test-qwen-execution-sensitivity.py
+          python3 scripts/test-qwen-microbatch-threshold.py
       - name: Install host C++ build dependencies
         run: |
           set -euo pipefail
@@ -81,48 +84,52 @@ jobs:
             'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf?download=true'
           echo "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971  $MODEL" | sha256sum -c -
           echo "QWEN_REFERENCE_MODEL=$MODEL" >> "$GITHUB_ENV"
-      - name: Compare microbatch and CPU thread sensitivity with fixed synthetic inputs
+      - name: Compare synthetic prefill across physical microbatch thresholds
         run: |
           set -euo pipefail
           MIXED="$RUNNER_TEMP/qwen-ref-build/qwen-mixed-reference"
           FEATURES=verification/fixtures/s26-synthetic-features.f32le
           for mode in unified three-stage; do
             case "$mode" in unified) KEY=unified ;; three-stage) KEY=three_stage ;; esac
-            for spec in base:256:4 micro64:64:4 thread1:256:1; do
-              IFS=: read -r CONFIG UBATCH THREADS <<< "$spec"
-              DEST="artifact/${KEY}_${CONFIG}"
+            for UBATCH in 64 128 160 192 256; do
+              DEST="artifact/${KEY}_u${UBATCH}"
               mkdir -p "$DEST"
-              "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" "$DEST" "$mode" "$UBATCH" "$THREADS"
+              "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" "$DEST" "$mode" "$UBATCH" 4
             done
-            DEST="artifact/${KEY}_base_replay"
-            mkdir -p "$DEST"
-            "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" "$DEST" "$mode" 256 4
           done
-          mkdir -p artifact/unified_micro64_replay
-          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/unified_micro64_replay unified 64 4
-          python3 scripts/evaluate-qwen-execution-sensitivity.py \
+          for spec in unified:unified:256 three_stage:three-stage:256 unified:unified:160; do
+            IFS=: read -r KEY MODE UBATCH <<< "$spec"
+            DEST="artifact/${KEY}_u${UBATCH}_replay"
+            mkdir -p "$DEST"
+            "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" "$DEST" "$MODE" "$UBATCH" 4
+          done
+          python3 scripts/evaluate-qwen-microbatch-threshold.py \
             --fixtures verification/fixtures \
-            --unified-base artifact/unified_base \
-            --three-stage-base artifact/three_stage_base \
-            --unified-micro64 artifact/unified_micro64 \
-            --three-stage-micro64 artifact/three_stage_micro64 \
-            --unified-thread1 artifact/unified_thread1 \
-            --three-stage-thread1 artifact/three_stage_thread1 \
-            --unified-base-replay artifact/unified_base_replay \
-            --three-stage-base-replay artifact/three_stage_base_replay \
-            --unified-micro64-replay artifact/unified_micro64_replay \
+            --unified-u64 artifact/unified_u64 \
+            --unified-u128 artifact/unified_u128 \
+            --unified-u160 artifact/unified_u160 \
+            --unified-u192 artifact/unified_u192 \
+            --unified-u256 artifact/unified_u256 \
+            --three-stage-u64 artifact/three_stage_u64 \
+            --three-stage-u128 artifact/three_stage_u128 \
+            --three-stage-u160 artifact/three_stage_u160 \
+            --three-stage-u192 artifact/three_stage_u192 \
+            --three-stage-u256 artifact/three_stage_u256 \
+            --unified-u256-replay artifact/unified_u256_replay \
+            --three-stage-u256-replay artifact/three_stage_u256_replay \
+            --unified-u160-replay artifact/unified_u160_replay \
             --llama-revision "$REFERENCE_LLAMA_REV" \
-            --output artifact/EXECUTION_SENSITIVITY_REPORT.json
+            --output artifact/MICROBATCH_THRESHOLD_REPORT.json
       - name: Create an explicit inconclusive report if model execution failed
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          if [ ! -s artifact/EXECUTION_SENSITIVITY_REPORT.json ]; then
+          if [ ! -s artifact/MICROBATCH_THRESHOLD_REPORT.json ]; then
             python3 - <<'PYREPORT'
           import json
           from pathlib import Path
-          Path('artifact/EXECUTION_SENSITIVITY_REPORT.json').write_text(json.dumps({
+          Path('artifact/MICROBATCH_THRESHOLD_REPORT.json').write_text(json.dumps({
               'schema': 1,
               'status': 'INCONCLUSIVE',
               'reason': 'HOST_EXECUTION_OR_SETUP_FAILED_BEFORE_NUMERICAL_COMPARISON',
@@ -138,26 +145,26 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.12 same-host synthetic-only microbatch/thread sensitivity'
+            echo 'WhisperRecorder 6.6.13 same-host synthetic-only microbatch threshold sensitivity'
             echo "lab_commit=$GITHUB_SHA"
             echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
-            echo 'reference_kind=HOST_SAME_CPU_MICROBATCH_THREAD_SENSITIVITY'
+            echo 'reference_kind=HOST_SAME_CPU_MICROBATCH_LENGTH_THRESHOLD'
             echo 'model_math_independent=false'
             echo 'official_qwen_parity=NOT_VERIFIED'
             echo 'mrope_parity=UNQUALIFIED'
             echo 'model_sha256=bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971'
             echo 'feature_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
             echo 's26_logit_sha256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
-            echo 'n_ctx=512 n_batch=256 n_ubatch=256_or_64 decode_threads=4_or_1 batch_threads=4_or_1 gpu_layers=0'
+            echo 'n_ctx=512 n_batch=256 n_ubatch=64_or_128_or_160_or_192_or_256 decode_threads=4 batch_threads=4 gpu_layers=0'
             echo 'teacher_forced_steps=5; only step00 corresponds to existing S26 reference'
-            echo 'paths=extended unified and three-stage; contexts n_ubatch=256 threads=4 / n_ubatch=64 threads=4 / n_ubatch=256 threads=1; baseline and unified64 replayed'
-            echo 'Use EXECUTION_SENSITIVITY_REPORT.json; only same-run comparisons isolate host configuration effects'
+            echo 'paths=extended unified and three-stage; 64/128/160/192/256 microbatch sizes, four threads; 256 and 160 replay controls'
+            echo 'Use MICROBATCH_THRESHOLD_REPORT.json; only same-run comparisons isolate host configuration effects'
           } > artifact/PROVENANCE.txt
       - name: Upload numerical artifacts on success or failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.12-host-execution-sensitivity-${{ github.run_number }}
+          name: qwen-6.6.13-host-microbatch-threshold-${{ github.run_number }}
           path: artifact/
           retention-days: 14
           if-no-files-found: error
