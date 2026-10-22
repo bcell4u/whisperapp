@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Read-only tensor identity audit: pinned HF -hf safetensors vs public GGUF BF16.
+"""Read-only identity audit: pinned HF BF16 vs GGUF BF16/F32 tensors.
 
-Only directly comparable, non-RoPE-permuted decoder tensors are audited.
+Direct BF16 bytes and one-dimensional normalization tensors cast to F32 are audited.
 Tensor names and coverage are explicit; unmatched tensors are NOT presumed equal.
 No tensor bytes are uploaded or printed. Never claims whole-model parity.
 """
@@ -184,6 +184,8 @@ LAYER_MAP = {
     'ffn_up.weight': 'mlp.up_proj.weight',
     'attn_norm.weight': 'input_layernorm.weight',
     'ffn_norm.weight': 'post_attention_layernorm.weight',
+    'attn_q_norm.weight': 'self_attn.q_norm.weight',
+    'attn_k_norm.weight': 'self_attn.k_norm.weight',
 }
 
 
@@ -199,8 +201,12 @@ def hf_alias(gguf_name, available):
         suffix='.lm_head.weight'
     else:
         return None
+    # Use the TEXT-decoder namespace explicitly. Audio encoder layers may share
+    # suffixes; ambiguous suffix matching silently discards or misidentifies V.
+    canonical='model.language_model'+suffix
+    if canonical in available:
+        return canonical
     found=[name for name in available if name.endswith(suffix)]
-    # If two candidate suffixes match, ambiguous rather than silently picking one.
     return found[0] if len(found)==1 else None
 
 
@@ -227,6 +233,27 @@ def sample_bf16_rmse(left,lpos,right,rpos,elements,samples=512):
     return math.sqrt(total/min(samples,elements))
 
 
+def is_norm_tensor(name):
+    return (name=='output_norm.weight' or
+            bool(re.fullmatch(r'blk\.\d+\.(?:attn_norm|ffn_norm|attn_q_norm|attn_k_norm)\.weight', name)))
+
+
+def bf16_to_f32_storage_match(gg, gpos, hf, hpos, elements):
+    """Compare all values, not samples: a BF16-to-F32 cast is exact in bits.
+
+    Validate finite weights (to avoid treating NaN payloads as equivalent).
+    Return (matching, first_bad_index), with no weight values disclosed.
+    """
+    for i in range(elements):
+        bits_bf16 = struct.unpack_from('<H', hf, hpos + 2*i)[0]
+        bits_f32 = struct.unpack_from('<I', gg, gpos + 4*i)[0]
+        if (bits_bf16 & 0x7f80) == 0x7f80:
+            return False, i
+        if bits_f32 != bits_bf16 << 16:
+            return False, i
+    return True, None
+
+
 def audit(gguf_path,hf_path,verify_hashes=True):
     gguf_path,hf_path=Path(gguf_path),Path(hf_path)
     gguf_sha=sha256_file(gguf_path)
@@ -245,21 +272,40 @@ def audit(gguf_path,hf_path,verify_hashes=True):
                     unmatched.append(name)
                     continue
                 h=h_tensors[hf_name]
-                compatible=(g['elements']==h['elements'] and g['type']==30
-                            and h['dtype']=='BF16' and g['byte_length']==h['byte_length'])
-                if not compatible:
+                matched_shape = (g['elements']==h['elements'] and h['dtype']=='BF16')
+                direct = (matched_shape and g['type']==30 and
+                          g['byte_length']==h['byte_length'])
+                converted = (matched_shape and g['type']==0 and is_norm_tensor(name) and
+                             len(g['shape'])==len(h['shape'])==1 and
+                             g['shape']==h['shape'] and
+                             g['byte_length']==4*h['elements'] and
+                             h['byte_length']==2*h['elements'])
+                if not (direct or converted):
                     issues.append({'gguf_tensor':name,'hf_tensor':hf_name,'reason':'SHAPE_OR_DTYPE_MISMATCH',
                                    'gguf_shape':g['shape'],'gguf_type':g['type'],
                                    'hf_shape':h['shape'],'hf_dtype':h['dtype']})
                     continue
-                identical=identical_bytes(gg,g['offset'],hs,h['offset'],h['byte_length'])
-                record={'gguf_tensor':name,'hf_tensor':hf_name,'elements':g['elements'],
-                        'byte_identical':identical}
-                if not identical:
-                    record['sample_rmse_bf16']=sample_bf16_rmse(gg,g['offset'],hs,h['offset'],g['elements'])
+                if direct:
+                    identical=identical_bytes(gg,g['offset'],hs,h['offset'],h['byte_length'])
+                    record={'gguf_tensor':name,'hf_tensor':hf_name,'elements':g['elements'],
+                            'comparison':'BF16_RAW_BYTES','byte_identical':identical,
+                            'storage_conversion_equal':False,'equal':identical}
+                    if not identical:
+                        record['sample_rmse_bf16']=sample_bf16_rmse(gg,g['offset'],hs,h['offset'],g['elements'])
+                else:
+                    same, first_bad = bf16_to_f32_storage_match(
+                        gg,g['offset'],hs,h['offset'],g['elements'])
+                    record={'gguf_tensor':name,'hf_tensor':hf_name,'elements':g['elements'],
+                            'comparison':'HF_BF16_CAST_TO_GGUF_F32','byte_identical':False,
+                            'storage_conversion_equal':same,'equal':same}
+                    if first_bad is not None:
+                        record['first_mismatched_element']=first_bad
                 compared.append(record)
             exact=sum(x['byte_identical'] for x in compared)
-            different=[x for x in compared if not x['byte_identical']]
+            cast_equal=sum(x['storage_conversion_equal'] for x in compared)
+            direct_count=sum(x['comparison']=='BF16_RAW_BYTES' for x in compared)
+            cast_count=sum(x['comparison']=='HF_BF16_CAST_TO_GGUF_F32' for x in compared)
+            different=[x for x in compared if not x['equal']]
             layers=sorted({int(m.group(1)) for x in compared if (m:=re.match(r'blk\.(\d+)\.',x['gguf_tensor']))})
             # A partial audit cannot establish identity for q/k RoPE permutations,
             # unselected tensors, or the entire original Qwen checkpoint.
@@ -270,11 +316,12 @@ def audit(gguf_path,hf_path,verify_hashes=True):
             elif issues:
                 status='INCONCLUSIVE_INCOMPATIBLE_NAMED_TENSORS'
             else:
-                status='AUDITED_TENSORS_BYTE_IDENTICAL'
+                status=('AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION' if cast_count else
+                        'AUDITED_TENSORS_BYTE_IDENTICAL')
             metadata={k:v for k,v in kv.items() if k=='general.architecture' or
                       any(key in k for key in ('rope','head_count','embedding_length','block_count','attention'))}
             return {
-                'schema':1,'release':'6.6.20','status':status,
+                'schema':2,'release':'6.6.22','status':status,
                 'reference_kind':'CHECKPOINT_TENSOR_IDENTITY_AUDIT',
                 'hf_model':'Qwen/Qwen3-ASR-0.6B-hf','hf_revision':HF_REV,
                 'gguf_model':'ggml-org/Qwen3-ASR-0.6B-GGUF/bf16',
@@ -283,6 +330,10 @@ def audit(gguf_path,hf_path,verify_hashes=True):
                 'hf_tensor_count':len(h_tensors),
                 'compatible_audited_tensors':len(compared),
                 'byte_identical_tensors':exact,
+                'direct_bf16_tensors':direct_count,
+                'converted_f32_norm_tensors':cast_count,
+                'storage_conversion_equivalent_tensors':cast_equal,
+                'equivalent_audited_tensors':exact+cast_equal,
                 'different_tensors':len(different),
                 'incompatible_named_tensors':len(issues),
                 'audited_layer_count':len(layers),'audited_layers':layers,
@@ -296,7 +347,7 @@ def audit(gguf_path,hf_path,verify_hashes=True):
                 'official_mrope_parity':'UNQUALIFIED',
                 'official_full_asr_parity':'NOT_VERIFIED',
                 'synthetic_only':True,
-                'note':'BF16 raw storage bytes compared for explicitly named, shape-compatible decoder tensors; this is not a proof of whole-checkpoint or position encoding equivalence.'
+                'note':'Direct BF16 tensor bytes and all values of eligible 1D GGUF F32 normalization tensors versus exact HF BF16-to-F32 casts are compared; unmapped tensors, Q/K RoPE layout, whole-model and positional equivalence remain unverified.'
             }
 
 
@@ -310,6 +361,7 @@ def main():
     Path(args.output).parent.mkdir(parents=True,exist_ok=True)
     Path(args.output).write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
     print('WEIGHT_AUDIT',result['status'],'compatible',result['compatible_audited_tensors'],
-          'identical',result['byte_identical_tensors'],'different',result['different_tensors'])
+          'byte_identical',result['byte_identical_tensors'],
+          'f32_norm_cast_equal',result['storage_conversion_equivalent_tensors'],'different',result['different_tensors'])
 
 if __name__=='__main__':main()

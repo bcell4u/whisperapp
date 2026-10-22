@@ -1,34 +1,54 @@
-# 6.6.21 HOST ONLY: exact-weight provenance audit, no Android inference changes.
-name: Qwen HF versus GGUF BF16 weight identity
+# 6.6.22 host-only multi-phase decoder audit; never changes Android inference.
+name: Qwen multistage decoder parity investigation
 on:
   push:
     branches: [main]
     paths:
       - 'scripts/audit-qwen-gguf-hf-weights.py'
+      - 'scripts/audit-qwen-qk-layout.py'
+      - 'scripts/probe-qwen-hf-position-axes.py'
+      - 'scripts/evaluate-qwen-multiphase.py'
       - 'scripts/test-qwen-weight-identity.py'
+      - 'scripts/test-qwen-multiphase.py'
       - 'scripts/produce-qwen-hf-reference.py'
-      - 'LAB_6_6_21_WEIGHT_PARSER_REPAIR.md'
+      - 'scripts/verify-lab-source.py'
+      - 'LAB_6_6_22_NORM_WEIGHT_EQUIVALENCE.md'
       - '.github/workflows/qwen-host-reference-verification.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  hf-gguf-weight-identity:
+  hf-gguf-multiphase:
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 150
+    env:
+      HF_HOME: ${{ runner.temp }}/qwen-hf-cache
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      OMP_NUM_THREADS: '4'
+      TOKENIZERS_PARALLELISM: 'false'
     steps:
-      - name: Checkout and verify Lab source, synthetic model-free tests
+      - name: Checkout complete Lab repository
         uses: actions/checkout@v4
-      - name: Validate weight parser and identity contracts
+        with:
+          persist-credentials: false
+      - name: Phase 0 - validate source and no-model controls
         run: |
           set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-cache-dir 'numpy>=1.26,<3'
           python3 scripts/verify-lab-source.py
           python3 scripts/test-qwen-weight-identity.py
-      - name: Install checkpoint downloader
+          python3 scripts/test-qwen-multiphase.py
+          python3 scripts/test-qwen-independent-reference.py
+      - name: Install pinned-independent-reference Python environment
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-cache-dir 'huggingface_hub>=0.30,<2'
-      - name: Fetch public fixed BF16 GGUF to ephemeral runner directory
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            --index-url https://download.pytorch.org/whl/cpu 'torch==2.7.1+cpu'
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            'transformers>=5,<6' 'huggingface_hub>=0.30,<2' \
+            'safetensors>=0.5' 'accelerate>=1.0' 'numpy>=1.26,<3'
+          python3 -c 'import torch,transformers,numpy; from transformers import Qwen3ASRForConditionalGeneration; print(torch.__version__,transformers.__version__,numpy.__version__)'
+      - name: Download SHA-pinned GGUF and HF BF16 weights into ephemeral runner space
         run: |
           set -euo pipefail
           mkdir -p artifact
@@ -37,77 +57,88 @@ jobs:
             -o "$BF16" 'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-bf16.gguf?download=true'
           echo "12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50  $BF16" | sha256sum -c -
           echo "GGUF_BF16=$BF16" >> "$GITHUB_ENV"
-      - name: Fetch pinned Hugging Face BF16 reference checkpoint to runner cache
-        env:
-          HF_HOME: ${{ runner.temp }}/qwen-hf-cache
-          HF_HUB_DISABLE_TELEMETRY: '1'
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import hashlib
+          python3 - <<'PYHF'
           from huggingface_hub import snapshot_download
+          import hashlib,os
           from pathlib import Path
-          import os
-          revision='6aa69c382e2b426eee1f5870d4c95859a74b6445'
-          snapshot=Path(snapshot_download(repo_id='Qwen/Qwen3-ASR-0.6B-hf',revision=revision,
-                                          allow_patterns=['model.safetensors']))
-          assert snapshot.name==revision, 'HF_RESOLVED_REVISION_MISMATCH'
-          tensor=snapshot/'model.safetensors'
-          assert tensor.is_file(), 'HF_WEIGHT_NOT_FOUND'
+          rev='6aa69c382e2b426eee1f5870d4c95859a74b6445'
+          repo=Path(snapshot_download(repo_id='Qwen/Qwen3-ASR-0.6B-hf',revision=rev,
+                      allow_patterns=['model.safetensors','config.json']))
+          assert repo.name==rev, 'HF_REVISION_MISMATCH'
+          weight=repo/'model.safetensors'
           h=hashlib.sha256()
-          with tensor.open('rb') as f:
-              for block in iter(lambda:f.read(4*1024*1024), b''):h.update(block)
-          assert h.hexdigest()=='d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35', 'HF_WEIGHT_HASH_MISMATCH'
-          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('HF_SAFETENSORS='+str(tensor)+'\n')
-          print('HF_CHECKPOINT_HASH_VERIFIED revision='+revision)
-          PY
-      - name: Audit exact decoder tensor values without executing inference
+          with weight.open('rb') as f:
+              for block in iter(lambda:f.read(4*1024*1024),b''):h.update(block)
+          assert h.hexdigest()=='d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35', 'HF_CHECKPOINT_SHA_MISMATCH'
+          assert (repo/'config.json').is_file(), 'HF_CONFIG_MISSING'
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              out.write('HF_SAFETENSORS='+str(weight)+'\n')
+              out.write('HF_CHECKPOINT='+str(repo)+'\n')
+          print('HF_SHA_AND_REVISION_VERIFIED')
+          PYHF
+      - name: Phase 1 - exact BF16 and FP32-cast weight equivalence
+        id: phase_storage
+        continue-on-error: true
         run: |
           set -euo pipefail
           python3 scripts/audit-qwen-gguf-hf-weights.py \
             --gguf "$GGUF_BF16" --hf "$HF_SAFETENSORS" \
             --output artifact/WEIGHT_IDENTITY_REPORT.json
-          test -s artifact/WEIGHT_IDENTITY_REPORT.json
-      - name: Fail closed when setup, fetch or audit fails
+      - name: Phase 2 - all decoder Q/K matrix storage-layout candidates
+        id: phase_qk
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/audit-qwen-qk-layout.py \
+            --gguf "$GGUF_BF16" --hf "$HF_SAFETENSORS" \
+            --output artifact/QK_LAYOUT_REPORT.json
+      - name: Phase 3 - independent HF equal-axis and asymmetric M-RoPE controls
+        id: phase_positions
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/probe-qwen-hf-position-axes.py \
+            --features verification/fixtures/s26-synthetic-features.f32le \
+            --checkpoint "$HF_CHECKPOINT" \
+            --s26-logits verification/fixtures/s26-prefill-logits.f32le \
+            --output artifact/HF_POSITION_AXES_REPORT.json
+      - name: Phase 4 - consolidate each stage without inventing missing results
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          if [ ! -s artifact/WEIGHT_IDENTITY_REPORT.json ]; then
-            python3 - <<'PYREPORT'
-          import json
-          from pathlib import Path
-          Path('artifact/WEIGHT_IDENTITY_REPORT.json').write_text(json.dumps({
-            'schema':1,'release':'6.6.21','status':'INCONCLUSIVE',
-            'reason':'SOURCE_CHECK_DOWNLOAD_CHECKSUM_OR_TENSOR_AUDIT_FAILED',
-            'model_weight_identity':'NOT_VERIFIED',
-            'official_mrope_parity':'UNQUALIFIED',
-            'official_full_asr_parity':'NOT_VERIFIED'
-          },indent=2)+'\n')
-          PYREPORT
-          fi
-      - name: Record reproducible provenance and scope
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p artifact
+          python3 scripts/evaluate-qwen-multiphase.py \
+            --artifact-dir artifact --output artifact/MULTIPHASE_REPORT.json
           {
-            echo 'WhisperRecorder 6.6.21 exact BF16 tensor audit'
+            echo 'WhisperRecorder v6.6.22 multi-stage model-and-position audit'
             echo "lab_commit=$GITHUB_SHA"
+            echo 'huggingface_checkpoint=Qwen/Qwen3-ASR-0.6B-hf'
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
             echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
             echo 'gguf_bf16_sha256=12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50'
-            echo 'direct_tensor_identity_only; qk_rope_permutations_excluded=true'
-            echo 'whole_model_weight_identity=NOT_VERIFIED'
-            echo 'original_vs_hf_architecture_and_multiaxis_mrope_parity=UNQUALIFIED'
-            echo 'synthetic_only=true; no_speech_or_transcript_or_credential_export'
-            echo 'android_decoder_and_performance_settings_unchanged=true'
+            echo 'synthetic_features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
+            echo 'stages=raw_BF16_exact;F32_norm_exact_cast;QK_layout_candidates;independent_HF_position_axis_probe'
+            echo 'official_mrope_parity=UNQUALIFIED;whole_model_identity=NOT_ESTABLISHED'
+            echo 'android_inference_changed=false;synthetic_only=true'
+            echo 'no_private_recordings_transcripts_weights_or_signing_material_in_artifacts=true'
           } > artifact/PROVENANCE.txt
-      - name: Upload report regardless of outcome
+      - name: Upload all phase reports even when individual stages fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.21-hf-gguf-weight-identity-${{ github.run_number }}
+          name: qwen-6.6.22-hf-gguf-weight-identity-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
+      - name: Fail job if any required independent stage was unavailable
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path('artifact/MULTIPHASE_REPORT.json').read_text())
+          if not all(x['available'] for x in report['phases'].values()):
+              raise SystemExit('INCOMPLETE_MULTIPHASE_ARTIFACT; download it for diagnostic details')
+          print('All three independent stage reports uploaded:',report['status'])
+          PY
