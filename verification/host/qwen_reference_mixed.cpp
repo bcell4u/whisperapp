@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -108,12 +109,23 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 } // namespace
 
 int main(int argc, char ** argv) {
-    if (argc != 5) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf SYNTHETIC_FEATURES.f32le OUTPUT_DIR unified|three-stage|prefix-audio|audio-suffix\n", argv[0]);
+    if (argc != 5 && argc != 7) {
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=256 THREADS=4]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
     if (mode != "unified" && mode != "three-stage" && mode != "prefix-audio" && mode != "audio-suffix") return 2;
+    // Explicit allowlist, fail closed on malformed host-test configurations.
+    int ubatch = 256;
+    int threads = 4;
+    if (argc == 7) {
+        const std::string ub = argv[5];
+        const std::string th = argv[6];
+        if (ub != "64" && ub != "256") return 2;
+        if (th != "1" && th != "4") return 2;
+        ubatch = std::atoi(argv[5]);
+        threads = std::atoi(argv[6]);
+    }
     llama_backend_init();
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
@@ -132,16 +144,16 @@ int main(int argc, char ** argv) {
         auto ctx_params = llama_context_default_params();
         ctx_params.n_ctx = 512;
         ctx_params.n_batch = 256;
-        ctx_params.n_ubatch = 256;
-        ctx_params.n_threads = 4;
-        ctx_params.n_threads_batch = 4;
+        ctx_params.n_ubatch = ubatch;
+        ctx_params.n_threads = threads;
+        ctx_params.n_threads_batch = threads;
         ctx = llama_init_from_model(model, ctx_params);
         require(ctx != nullptr, "CONTEXT_INIT_FAILED");
         run(ctx, features, argv[3], mode);
         llama_free(ctx);
         llama_model_free(model);
         llama_backend_free();
-        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s steps=5 model_math_independent=false\n", mode.c_str());
+        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d steps=5 model_math_independent=false\n", mode.c_str(), ubatch, threads);
         return 0;
     } catch (const std::exception & e) {
         std::fprintf(stderr, "INCONCLUSIVE_MIXED_HOST: %s\n", e.what());

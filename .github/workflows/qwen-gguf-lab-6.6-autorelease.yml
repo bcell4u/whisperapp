@@ -1,4 +1,4 @@
-# 6.6.11 EXPERIMENTAL LAB ONLY. Each push to main publishes a new GitHub
+# 6.6.12 EXPERIMENTAL LAB ONLY. Each push to main publishes a new GitHub
 # prerelease after all compile, signing, package ID, and protocol checks pass.
 # Uses the SAME five signing-secret names as the original 6.5.22 workflow.
 # NEVER produces the production applicationId or a stable production release.
@@ -153,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/test-qwen-synthetic-logit-contract.py
-      - name: Build and test v6.6.11 isolated debug APK
+      - name: Build and test v6.6.12 isolated debug APK
         env:
           WR_LAB_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           WR_LAB_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -170,8 +170,8 @@ jobs:
           test -s "$APK"
           BADGING="$($ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK")"
           echo "$BADGING" | grep -F "package: name='com.example.whisperrecorder.qwengguflab.dev'"
-          echo "$BADGING" | grep -F "versionCode='66011'"
-          echo "$BADGING" | grep -F "versionName='6.6.11-dev'"
+          echo "$BADGING" | grep -F "versionCode='66012'"
+          echo "$BADGING" | grep -F "versionName='6.6.12-dev'"
           echo "$BADGING" | grep -F "application: label='Qwen GGUF Lab'"
           python3 - <<'PY'
           from zipfile import ZipFile
@@ -198,15 +198,15 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           SHORT_SHA="${GITHUB_SHA:0:10}"
-          APK_NAME="WhisperRecorder-Qwen-GGUF-Lab-v6.6.11-${SHORT_SHA}.apk"
+          APK_NAME="WhisperRecorder-Qwen-GGUF-Lab-v6.6.12-${SHORT_SHA}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "artifact/$APK_NAME"
           (cd artifact && sha256sum "$APK_NAME" > SHA256SUMS.txt)
           {
-            echo 'WhisperRecorder Qwen GGUF Lab v6.6.11 EXPERIMENTAL / NOT PHONE-QUALIFIED'
+            echo 'WhisperRecorder Qwen GGUF Lab v6.6.12 EXPERIMENTAL / NOT PHONE-QUALIFIED'
             echo "commit=$GITHUB_SHA"
             echo "run_id=$GITHUB_RUN_ID"
-            echo 'versionName=6.6.11-dev'
-            echo 'versionCode=66011'
+            echo 'versionName=6.6.12-dev'
+            echo 'versionCode=66012'
             echo 'applicationId=com.example.whisperrecorder.qwengguflab.dev'
             echo "stable_signing=${LAB_STABLE_SIGNING:-false}"
             echo "signer_sha256=$LAB_SIGNER_SHA256"
@@ -219,7 +219,7 @@ jobs:
       - name: Upload debug APK as Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: whisperrecorder-qwen-gguf-lab-v6.6.11-${{ github.run_number }}
+          name: whisperrecorder-qwen-gguf-lab-v6.6.12-${{ github.run_number }}
           path: artifact/
           retention-days: 30
           if-no-files-found: error
@@ -229,11 +229,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Pre-release tags cannot consume or overwrite the production v6.6.11 tag.
-          TAG="v6.6.11-lab.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.g${GITHUB_SHA:0:10}"
+          # Pre-release tags cannot consume or overwrite the production v6.6.12 tag.
+          TAG="v6.6.12-lab.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.g${GITHUB_SHA:0:10}"
           gh release create "$TAG" \
             "artifact/$LAB_APK_NAME" artifact/SHA256SUMS.txt artifact/BUILD_PROOF.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "WhisperRecorder Qwen GGUF Lab 6.6.11 ($GITHUB_SHA)" \
-            --notes 'Experimental 6.6.11 QNN encoder + ARM64 dotprod GGUF decoder. Separate lab application ID. 6.6.1 on-device log reported success; model backup/restore carried forward; synthetic-only verification now checks full FP32 prefill-logit replay and exports a synthetic checkpoint for external numerical comparison; KV reset and optional token references retained. Separate synthetic-only GitHub reference workflow now tests standard split against four extended prefill groupings including both two-stage boundary variants; independent model mathematics and M-RoPE remain UNQUALIFIED until authoritative external checks. Models download on demand. All compilation and APK checks must pass before release.' \
+            --title "WhisperRecorder Qwen GGUF Lab 6.6.12 ($GITHUB_SHA)" \
+            --notes 'Experimental 6.6.12 QNN encoder + ARM64 dotprod GGUF decoder. Separate lab application ID. 6.6.1 on-device log reported success; model backup/restore carried forward; synthetic-only verification now checks full FP32 prefill-logit replay and exports a synthetic checkpoint for external numerical comparison; KV reset and optional token references retained. Separate synthetic-only GitHub reference workflow now measures effects of prefill microbatch size and CPU thread count; independent model mathematics and M-RoPE remain UNQUALIFIED until authoritative external checks. Models download on demand. All compilation and APK checks must pass before release.' \
             --prerelease --latest=false

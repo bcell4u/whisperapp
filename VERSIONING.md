@@ -1,3 +1,9 @@
+# 6.6.12 — host-only microbatch and CPU thread sensitivity
+
+versionName 6.6.12 / versionCode 66012. Compared with 6.6.11, only host synthetic decoder arguments, host workflow, host comparison/test scripts, release metadata, and documentation are changed. **Android native decoder, Java/Kotlin ASR, QNN execution, stitcher, signing configuration, and model backup logic remain untouched.** Actual APK compilation and actual model inference require GitHub Actions.
+
+---
+
 # 6.6.11 — host-only prefill boundary isolation
 
 versionName 6.6.11 / versionCode 66011. The Android decoder binary/source remain unchanged; the new host-only `[prefix+audio][suffix]` and `[prefix][audio+suffix]` comparisons isolate grouping effects.
