@@ -61,14 +61,21 @@ struct MixedBatch {
 // "text-filler": replace each of the 156 middle positions with ordinary text token 198.
 // They are mathematical controls ONLY, not valid speech-recognition prompts.
 void run(llama_context * ctx, const std::vector<float> & audio, const std::filesystem::path & folder,
-         const std::string & mode, const std::string & input_kind, int greedy_max) {
+         const std::string & mode, const std::string & input_kind, int greedy_max, const std::string & pos_mode) {
     const bool cut_after_prefix = mode == "three-stage" || mode == "audio-suffix";
     const bool cut_after_audio = mode == "three-stage" || mode == "prefix-audio";
     MixedBatch batch(ctx);
     int position = 0;
     auto set_position = [&](int idx) {
         require(idx >= 0, "CANNOT_APPEND_MIXED_ITEM");
-        const llama_pos current = position++;
+        const int index = position++;
+        // 6.6.25 host-only parity controls. All four GGUF axes receive the
+        // same scalar 2D HF position. These are mathematical controls, not
+        // a claim of official Qwen audio position-grid equivalence.
+        llama_pos current = static_cast<llama_pos>(index);
+        if (pos_mode == "pos-plus1") current += 1;
+        if (pos_mode == "pos-plus17") current += 17;
+        if (pos_mode == "pos-suffix-gap11" && index >= 165) current += 11;
         const llama_pos all_axes[4] = {current,current,current,current};
         require(llama_batch_ext_set_pos(batch.value, idx, all_axes), "MIXED_POSITION_FAILED");
         return idx;
@@ -156,15 +163,18 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 
 int main(int argc, char ** argv) {
     if (argc != 5 && argc != 7 && argc != 8 && argc != 9 && argc != 10) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler] [auto|flash-off|flash-on] [greedy-24]]\n", argv[0]);
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler] [auto|flash-off|flash-on] [greedy-24|pos-linear|pos-plus1|pos-plus17|pos-suffix-gap11]]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
     if (mode != "unified" && mode != "three-stage" && mode != "prefix-audio" && mode != "audio-suffix") return 2;
     const std::string input_kind = argc >= 8 ? argv[7] : "original";
     const std::string attention = argc >= 9 ? argv[8] : "auto";
-    const int greedy_max = argc == 10 && std::string(argv[9]) == "greedy-24" ? 24 : 0;
-    if (argc == 10 && greedy_max == 0) return 2;
+    const std::string step_arg = argc == 10 ? argv[9] : "";
+    const int greedy_max = step_arg == "greedy-24" ? 24 : 0;
+    const std::string pos_mode = step_arg.rfind("pos-", 0) == 0 ? step_arg : "pos-linear";
+    if (argc == 10 && greedy_max == 0 && step_arg != "pos-linear" && step_arg != "pos-plus1" &&
+        step_arg != "pos-plus17" && step_arg != "pos-suffix-gap11") return 2;
     if (attention != "auto" && attention != "flash-off" && attention != "flash-on") return 2;
     if (input_kind != "original" && input_kind != "zero" && input_kind != "text-filler") return 2;
     // Explicit allowlist, fail closed on malformed host-test configurations.
@@ -204,11 +214,11 @@ int main(int argc, char ** argv) {
         if (attention == "flash-on") ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
         ctx = llama_init_from_model(model, ctx_params);
         require(ctx != nullptr, "CONTEXT_INIT_FAILED");
-        run(ctx, features, argv[3], mode, input_kind, greedy_max);
+        run(ctx, features, argv[3], mode, input_kind, greedy_max, pos_mode);
         llama_free(ctx);
         llama_model_free(model);
         llama_backend_free();
-        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d input_kind=%s attention_request=%s steps=%s model_math_independent=false\n", mode.c_str(), ubatch, threads, input_kind.c_str(), attention.c_str(), greedy_max ? "greedy_max_24" : "teacher_forced_5");
+        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d input_kind=%s attention_request=%s steps=%s pos_mode=%s model_math_independent=false\n", mode.c_str(), ubatch, threads, input_kind.c_str(), attention.c_str(), greedy_max ? "greedy_max_24" : "teacher_forced_5", pos_mode.c_str());
         return 0;
     } catch (const std::exception & e) {
         std::fprintf(stderr, "INCONCLUSIVE_MIXED_HOST: %s\n", e.what());

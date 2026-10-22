@@ -1,25 +1,21 @@
-# 6.6.24 host-only multi-phase decoder audit; never changes Android inference.
-name: Qwen multistage decoder parity investigation
+# v6.6.25: matched-position BF16 GGUF four-axis vs independent HF 2D.
+# Synthetic data only; Android runtime is never used or modified.
+name: Qwen synthetic cross-backend positional parity
 on:
   push:
     branches: [main]
     paths:
-      - 'scripts/audit-qwen-gguf-hf-weights.py'
-      - 'scripts/audit-qwen-qk-layout.py'
-      - 'scripts/probe-qwen-hf-position-axes.py'
-      - 'scripts/test-qwen-hf-position-contract.py'
-      - 'scripts/evaluate-qwen-multiphase.py'
-      - 'scripts/test-qwen-weight-identity.py'
-      - 'scripts/test-qwen-multiphase.py'
-      - 'scripts/produce-qwen-hf-reference.py'
-      - 'scripts/verify-lab-source.py'
-      - 'LAB_6_6_22_NORM_WEIGHT_EQUIVALENCE.md'
       - '.github/workflows/qwen-host-reference-verification.yml'
+      - 'scripts/measure-qwen-hf-position-parity.py'
+      - 'scripts/evaluate-qwen-cross-backend-positions.py'
+      - 'scripts/test-qwen-cross-backend-positions.py'
+      - 'scripts/verify-lab-source.py'
+      - 'verification/host/**'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  hf-gguf-multiphase:
+  matched-position-parity:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -27,26 +23,22 @@ jobs:
       OMP_NUM_THREADS: '4'
       TOKENIZERS_PARALLELISM: 'false'
     steps:
-      - name: Checkout complete Lab repository
+      - name: Checkout complete experimental Lab source
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Initialize Hugging Face cache in runner temporary directory
+      - name: Initialize temporary directories on runner
         run: |
           set -euo pipefail
-          test -n "${RUNNER_TEMP:-}" || { echo 'RUNNER_TEMP unavailable' >&2; exit 1; }
-          mkdir -p "$RUNNER_TEMP/qwen-hf-cache"
+          test -n "${RUNNER_TEMP:-}"
+          mkdir -p "$RUNNER_TEMP/qwen-hf-cache" artifact/host artifact/hf
           echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"
-      - name: Phase 0 - validate source and no-model controls
+      - name: Validate source and cross-backend controls
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --no-cache-dir 'numpy>=1.26,<3'
           python3 scripts/verify-lab-source.py
-          python3 scripts/test-qwen-weight-identity.py
-          python3 scripts/test-qwen-multiphase.py
-          python3 scripts/test-qwen-workflow-context.py
-          python3 scripts/test-qwen-independent-reference.py
-      - name: Install pinned-independent-reference Python environment
+      - name: Install pinned CPU torch and Hugging Face dependencies
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
@@ -54,12 +46,12 @@ jobs:
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
             'transformers>=5,<6' 'huggingface_hub>=0.30,<2' \
             'safetensors>=0.5' 'accelerate>=1.0' 'numpy>=1.26,<3'
-          python3 -c 'import torch,transformers,numpy; from transformers import Qwen3ASRForConditionalGeneration; print(torch.__version__,transformers.__version__,numpy.__version__)'
+          python3 scripts/test-qwen-cross-backend-positions.py
           python3 scripts/test-qwen-hf-position-contract.py
-      - name: Download SHA-pinned GGUF and HF BF16 weights into ephemeral runner space
+          python3 scripts/test-qwen-workflow-context.py
+      - name: Download verified independent checkpoint and GGUF BF16
         run: |
           set -euo pipefail
-          mkdir -p artifact
           BF16="$RUNNER_TEMP/Qwen3-ASR-0.6B-bf16.gguf"
           curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 3600 \
             -o "$BF16" 'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-bf16.gguf?download=true'
@@ -67,86 +59,108 @@ jobs:
           echo "GGUF_BF16=$BF16" >> "$GITHUB_ENV"
           python3 - <<'PYHF'
           from huggingface_hub import snapshot_download
-          import hashlib,os
           from pathlib import Path
+          import hashlib,os
           rev='6aa69c382e2b426eee1f5870d4c95859a74b6445'
-          repo=Path(snapshot_download(repo_id='Qwen/Qwen3-ASR-0.6B-hf',revision=rev,
-                      allow_patterns=['model.safetensors','config.json']))
-          assert repo.name==rev, 'HF_REVISION_MISMATCH'
-          weight=repo/'model.safetensors'
+          folder=Path(snapshot_download(repo_id='Qwen/Qwen3-ASR-0.6B-hf',revision=rev,
+                    allow_patterns=['model.safetensors','config.json']))
+          assert folder.name==rev,'HF_REVISION_MISMATCH'
           h=hashlib.sha256()
-          with weight.open('rb') as f:
+          with (folder/'model.safetensors').open('rb') as f:
               for block in iter(lambda:f.read(4*1024*1024),b''):h.update(block)
-          assert h.hexdigest()=='d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35', 'HF_CHECKPOINT_SHA_MISMATCH'
-          assert (repo/'config.json').is_file(), 'HF_CONFIG_MISSING'
-          with open(os.environ['GITHUB_ENV'],'a') as out:
-              out.write('HF_SAFETENSORS='+str(weight)+'\n')
-              out.write('HF_CHECKPOINT='+str(repo)+'\n')
-          print('HF_SHA_AND_REVISION_VERIFIED')
+          assert h.hexdigest()=='d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35','HF_SHA_MISMATCH'
+          with open(os.environ['GITHUB_ENV'],'a') as out:out.write('HF_CHECKPOINT='+str(folder)+'\n')
+          print('INDEPENDENT_HF_WEIGHT_SHA_AND_REVISION_VERIFIED')
           PYHF
-      - name: Phase 1 - exact BF16 and FP32-cast weight equivalence
-        id: phase_storage
+      - name: Build pinned host llama.cpp reference without Android changes
+        run: |
+          set -euo pipefail
+          command -v ninja >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y ninja-build; }
+          git clone --quiet --depth 1 --branch v0.6.0 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama-host"
+          test "$(git -C "$RUNNER_TEMP/llama-host" rev-parse HEAD)" = d81235049384534c167caea52b85a694f6103d14
+          cmake -S verification/host -B "$RUNNER_TEMP/host-build" -G Ninja \
+            -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
+            -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build "$RUNNER_TEMP/host-build" --target qwen-mixed-reference --parallel 4
+          echo "MIXED_RUNNER=$RUNNER_TEMP/host-build/qwen-mixed-reference" >> "$GITHUB_ENV"
+      - name: Phase 1 - independent HF reference logits for four 2D maps
+        id: hf_reference
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 scripts/audit-qwen-gguf-hf-weights.py \
-            --gguf "$GGUF_BF16" --hf "$HF_SAFETENSORS" \
-            --output artifact/WEIGHT_IDENTITY_REPORT.json
-      - name: Phase 2 - all decoder Q/K matrix storage-layout candidates
-        id: phase_qk
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 scripts/audit-qwen-qk-layout.py \
-            --gguf "$GGUF_BF16" --hf "$HF_SAFETENSORS" \
-            --output artifact/QK_LAYOUT_REPORT.json
-      - name: Phase 3 - HF positional API, 2D and direct RoPE controls
-        id: phase_positions
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 scripts/probe-qwen-hf-position-axes.py \
-            --features verification/fixtures/s26-synthetic-features.f32le \
+          python3 scripts/measure-qwen-hf-position-parity.py \
             --checkpoint "$HF_CHECKPOINT" \
-            --s26-logits verification/fixtures/s26-prefill-logits.f32le \
-            --output artifact/HF_POSITION_AXES_REPORT.json
-      - name: Phase 4 - consolidate each stage without inventing missing results
+            --features verification/fixtures/s26-synthetic-features.f32le \
+            --output-dir artifact/hf
+      - name: Phase 2 - BF16 GGUF logits for four equal-axis maps, both attention requests
+        id: host_reference
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          failures=0
+          for mode in pos-linear pos-plus1 pos-plus17 pos-suffix-gap11; do
+            for attn in flash-off flash-on; do
+              folder="artifact/host/$mode/$attn"
+              mkdir -p "$folder"
+              if "$MIXED_RUNNER" "$GGUF_BF16" \
+                  verification/fixtures/s26-synthetic-features.f32le "$folder" \
+                  unified 256 4 original "$attn" "$mode" \
+                  >"$folder/inference.log" 2>&1 && test -s "$folder/logits-step-00.f32le"; then
+                echo "PASS: host $mode / $attn"
+              else
+                echo "INCONCLUSIVE_HOST_BRANCH: $mode / $attn" >&2
+                failures=$((failures + 1))
+              fi
+              # Only prefill logits are needed; forced-token outputs are not exported.
+              rm -f "$folder"/logits-step-0[1-5].f32le
+            done
+          done
+          test "$failures" -eq 0
+      - name: Phase 3 - consolidate matched-position numerical evidence
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          python3 scripts/evaluate-qwen-cross-backend-positions.py \
+            --artifact-dir artifact --output artifact/POSITION_PARITY_REPORT.json
+      - name: Write synthetic fixture provenance
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          python3 scripts/evaluate-qwen-multiphase.py \
-            --artifact-dir artifact --output artifact/MULTIPHASE_REPORT.json
           {
-            echo 'WhisperRecorder v6.6.24 multi-stage model-and-position audit'
+            echo 'WhisperRecorder v6.6.25 matched-position synthetic HF versus GGUF comparison'
             echo "lab_commit=$GITHUB_SHA"
-            echo 'huggingface_checkpoint=Qwen/Qwen3-ASR-0.6B-hf'
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
             echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
             echo 'gguf_bf16_sha256=12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50'
-            echo 'synthetic_features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
-            echo 'stages=raw_BF16_exact;F32_norm_exact_cast;QK_layout_candidates;independent_HF_2d_position_and_rotary_rank_contract'
-            echo 'official_mrope_parity=UNQUALIFIED;whole_model_identity=NOT_ESTABLISHED'
-            echo 'android_inference_changed=false;synthetic_only=true'
-            echo 'no_private_recordings_transcripts_weights_or_signing_material_in_artifacts=true'
+            echo 'features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
+            echo 'position_maps=linear,plus1,plus17,suffix-gap11'
+            echo 'host_axes=4 identical scalar positions;hf=standard 2D positions'
+            echo 'host_attention=flash-off,flash-on;host_batch=256;host_threads=4'
+            echo 'official_asr_mrope_grid_parity=NOT_VERIFIED;synthetic_only=true'
+            echo 'android_decoder_changed=false;no_user_audio_or_transcript=true'
           } > artifact/PROVENANCE.txt
-      - name: Upload all phase reports even when individual stages fail
+      - name: Upload host-vs-HF positional comparison even if stages fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.24-hf-gguf-weight-identity-${{ github.run_number }}
+          name: qwen-6.6.25-hf-gguf-position-parity-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
-      - name: Fail job if any required independent stage was unavailable
+      - name: Fail when required positional branches were not completed
         if: always()
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
           from pathlib import Path
-          report=json.loads(Path('artifact/MULTIPHASE_REPORT.json').read_text())
-          if not all(x['available'] for x in report['phases'].values()):
-              raise SystemExit('INCOMPLETE_MULTIPHASE_ARTIFACT; download it for diagnostic details')
-          print('All three independent stage reports uploaded:',report['status'])
+          p=Path('artifact/POSITION_PARITY_REPORT.json')
+          if not p.is_file():raise SystemExit('POSITION_COMPARISON_UNAVAILABLE; review artifact and job logs')
+          r=json.loads(p.read_text())
+          if r['status']!='MATCHED_POSITION_CROSS_BACKEND_COMPARISON_COMPLETE':
+              raise SystemExit('POSITION_COMPARISON_INCOMPLETE; inspect artifact missing_branches')
+          print('Matched-position experiment completed; correctness not certified')
           PY

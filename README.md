@@ -1,11 +1,11 @@
-# WhisperRecorder Qwen GGUF Lab 6.6.24 — HF position-contract verification
+# WhisperRecorder Qwen GGUF Lab 6.6.25 — matched-position independent numerical comparison
 
-Android `versionName=6.6.24`, `versionCode=66024`. The QNN encoder, Q8_0 ARM64 four-thread decoder, Flash Attention behavior, native inference settings and original 6.5.22 production app are unchanged.
+Android `versionName=6.6.25`, `versionCode=66025`. The QNN encoder, existing Q8_0 ARM64 four-thread decoder, Flash Attention behavior, native inference settings, and original 6.5.22 production app remain unchanged.
 
-v6.6.23 established zero differences in 254 compatible BF16/FP32-cast decoder tensors plus all 56 Q/K projection tensors across 28 layers. The earlier HF 3D/4D position variants failed with `ValueError`, not a decoder accuracy finding.
+The v6.6.24 GitHub results confirmed HF implicit and explicit linear 2D positions were exactly equal and showed 254 BF16/FP32-cast decoder tensors plus 56 Q/K tensors matching the published GGUF (no confirmed mismatches). Unsupported 3D/4D HF decoder inputs do not establish an ASR M-RoPE defect.
 
-The 6.6.24 host experiment retains the pinned weight and Q/K checks and adds an HF position-interface investigation: explicit versus implicit 2D positions; uniform positional offset; a synthetic suffix-gap control; attempted 3D/4D inputs with error reason and origin; and a separate direct RoPE module shape probe. The synthetic input hashes and original S26 first-token checkpoint remain pinned. **No official audio M-RoPE parity or clinical transcription improvement is claimed.**
+**New experiment:** in the pinned host llama.cpp and independent published HF BF16 model, compare four *matched* prefill position maps (linear, uniform +1, uniform +17, suffix gap +11) with exactly the same synthetic audio embeddings and prompt. The GGUF host receives the same scalar position on all four axes; HF receives standard 2D text positions. GGUF Flash Attention ON/OFF are separate controls. A self-describing JSON report records paired RMSE, cosine, max difference, centered RMSE and top-1 token agreement. Incomplete branches are marked inconclusive.
 
-Push the complete source to the separate Lab repository's `main` branch. Upload `qwen-6.6.24-hf-gguf-weight-identity-*.zip` from GitHub Actions. No phone test is needed.
+Push the complete ZIP source to the separate Lab repository `main` branch. Upload the resulting GitHub Actions artifact **`qwen-6.6.25-hf-gguf-position-parity-*.zip`**. No phone test is needed.
 
-See `LAB_6_6_24_POSITION_CONTRACT.md`.
+This synthetic diagnostic **does not establish** official Qwen audio positional grids, end-to-end audio encoder correctness or medical transcription accuracy. See `LAB_6_6_25_MATCHED_POSITION_PARITY.md` and `LAB_6_6_25_VALIDATION.md`.

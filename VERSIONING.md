@@ -1,6 +1,6 @@
-# WhisperRecorder 6.6.24 Lab versioning
+# WhisperRecorder 6.6.25 Lab versioning
 
-- Separate Lab app version `6.6.24`, Android versionCode `66024`. Production 6.5.22 remains untouched.
-- GitHub Actions publishes an experimental Lab APK on pushes and runs pinned BF16 weight, Q/K layout, HF positional-interface and consolidated host verification under `qwen-6.6.24-hf-gguf-weight-identity-*`.
-- No local Android APK compilation or actual 6.6.24 GGUF/HF run is claimed.
-- HF positions are not yet certified as equivalent to Android 4-axis provisional linear M-RoPE; all tests use public models and synthetic inputs only.
+- Separate experimental Lab app: versionName `6.6.25`, versionCode `66025`, production version 6.5.22 unchanged.
+- Host workflow: pinned HF 2D and GGUF BF16 four-axis **matched position** controls, with Flash Attention ON/OFF requests, producing `qwen-6.6.25-hf-gguf-position-parity-*`.
+- The evidence is synthetic and cannot establish official Qwen ASR M-RoPE parity or medical transcription accuracy. Android runtime is unchanged.
+- Local CI scripts and packaging are validated; actual pinned checkpoint computation and Android APK compilation are GitHub stages.

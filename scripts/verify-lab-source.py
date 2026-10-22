@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.24\nversionName=6.6.24\nversionCode=66024\n',
-      '6.6.24 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.25\nversionName=6.6.25\nversionCode=66025\n',
+      '6.6.25 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.24 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.25 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,49 +360,58 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.24-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.25-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66024'",
-               "versionName='6.6.24-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66025'",
+               "versionName='6.6.25-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.24 pinned raw BF16 identity and F32 normalization exact-cast audit; no phone change.
+# v6.6.25 reproducible cross-runtime positional comparison; weight identity
+# is already covered by archived v6.6.24 artifacts and archived audit scripts.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
-for marker in ('workflow_dispatch:', 'WEIGHT_IDENTITY_REPORT.json',
-               'qwen-6.6.24-hf-gguf-weight-identity-',
-               'scripts/audit-qwen-gguf-hf-weights.py',
-               'scripts/test-qwen-weight-identity.py',
-               '12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50',
+for marker in ('workflow_dispatch:', 'POSITION_PARITY_REPORT.json',
+               'qwen-6.6.25-hf-gguf-position-parity-',
+               'scripts/measure-qwen-hf-position-parity.py',
+               'scripts/evaluate-qwen-cross-backend-positions.py',
+               'scripts/test-qwen-cross-backend-positions.py',
+               'pos-suffix-gap11', 'pos-plus17', 'flash-off', 'flash-on',
+               'd81235049384534c167caea52b85a694f6103d14',
                '6aa69c382e2b426eee1f5870d4c95859a74b6445',
-               'whole_model_identity=NOT_ESTABLISHED',
-               'QK_LAYOUT_REPORT.json', 'HF_POSITION_AXES_REPORT.json',
-               'MULTIPHASE_REPORT.json', 'scripts/test-qwen-multiphase.py'):
-    check(marker in host_workflow, f'BF16 weight identity workflow missing {marker}')
+               'official_asr_mrope_grid_parity=NOT_VERIFIED'):
+    check(marker in host_workflow, f'cross-backend experiment missing {marker}')
+for f in ('scripts/measure-qwen-hf-position-parity.py',
+          'scripts/evaluate-qwen-cross-backend-positions.py',
+          'scripts/test-qwen-cross-backend-positions.py'):
+    read(f)
+for marker in ('pos-plus1', 'pos-plus17', 'pos-suffix-gap11',
+               'const llama_pos all_axes[4] = {current,current,current,current}'):
+    check(marker in read('verification/host/qwen_reference_mixed.cpp'),
+          f'host position map missing {marker}')
 # `runner` is unavailable in job-level `env` (workflow validation happens before routing).
 # Set HF_HOME on the actual runner via GITHUB_ENV in an early shell step.
 check('${{ runner.' not in host_workflow,
       'host workflow embeds runner context in an expression; verify scope before release')
-for marker in ('Initialize Hugging Face cache in runner temporary directory',
+for marker in ('Initialize temporary directories on runner',
                'echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"',
                'scripts/test-qwen-workflow-context.py'):
-    check(marker in host_workflow, f'6.6.24 runner-temporary-dir guard missing {marker}')
+    check(marker in host_workflow, f'6.6.25 runner-temporary-dir guard missing {marker}')
 read('scripts/test-qwen-workflow-context.py')
 read('LAB_6_6_23_WORKFLOW_CONTEXT_FIX.md')
 parser = read('scripts/audit-qwen-gguf-hf-weights.py')
 for marker in ('LIMIT_ARRAY = 2000000', 'skip_metadata_value',
                'def skip_text(self)', 'return [\'ARRAY_COUNT\', length]'):
-    check(marker in parser, f'6.6.24 large-GGUF-tokenizer parser repair missing {marker}')
+    check(marker in parser, f'6.6.25 large-GGUF-tokenizer parser repair missing {marker}')
 weight_test = read('scripts/test-qwen-weight-identity.py')
 for marker in ('LARGE_REALISTIC_TOKENIZER_ARRAY', 'GGUF_EXCESSIVE_ARRAY_LENGTH',
                'INVALID_OR_TRUNCATED_BINARY_HEADER'):
-    check(marker in weight_test, f'6.6.24 oversized metadata regression missing {marker}')
+    check(marker in weight_test, f'6.6.25 oversized metadata regression missing {marker}')
 for marker in ('def bf16_to_f32_storage_match(', 'HF_BF16_CAST_TO_GGUF_F32',
                'storage_conversion_equivalent_tensors',
                'AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION'):
-    check(marker in parser, f'6.6.24 precision-aware tensor audit missing {marker}')
+    check(marker in parser, f'6.6.25 precision-aware tensor audit missing {marker}')
 for marker in ('norms_f32=True', 'first_mismatched_element',
                'converted_f32_norm_tensors'):
-    check(marker in weight_test, f'6.6.24 BF16/F32 conversion regression missing {marker}')
+    check(marker in weight_test, f'6.6.25 BF16/F32 conversion regression missing {marker}')
 for f in ('scripts/audit-qwen-qk-layout.py',
           'scripts/probe-qwen-hf-position-axes.py',
           'scripts/evaluate-qwen-multiphase.py',
@@ -417,12 +426,12 @@ for marker in ('equal_3_axis', 'equal_4_axis',
                'asymmetric_4_axis_control', 'official_mrope_grid_reference'):
     check(marker in read('scripts/probe-qwen-hf-position-axes.py'),
           f'independent position-axis control missing {marker}')
-# 6.6.24: direct HF position API test adds supported 2D and RoPE rank diagnostics.
+# 6.6.25: direct HF position API test adds supported 2D and RoPE rank diagnostics.
 position_probe=read('scripts/probe-qwen-hf-position-axes.py')
 for marker in ('implicit_2d', 'uniform_plus_17', 'suffix_gap_11',
                'asymmetric_3_axis_control', 'direct_rotary', 'error_message',
                'HF_2D_POSITION_CONTRACT_VERIFIED', 'official_mrope_grid_reference'):
-    check(marker in position_probe, f'6.6.24 position-contract check missing {marker}')
+    check(marker in position_probe, f'6.6.25 position-contract check missing {marker}')
 read('scripts/test-qwen-hf-position-contract.py')
 check('scripts/test-qwen-hf-position-contract.py' in host_workflow,
       'new HF position control not enabled in GitHub CI')
@@ -513,4 +522,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.24 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.25 source/workflow static gates (NOT an APK compile)')

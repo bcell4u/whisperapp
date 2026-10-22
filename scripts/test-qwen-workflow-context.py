@@ -24,13 +24,13 @@ def lint(source: str) -> list[str]:
             problems.append(f'line {lineno}: runner context unavailable inside workflow/job env')
     if '      HF_HOME: ${{ runner.temp }}' in source:
         problems.append('original invalid HF_HOME job-level declaration present')
-    if 'Initialize Hugging Face cache in runner temporary directory' not in source:
+    if 'Initialize temporary directories on runner' not in source:
         problems.append('missing early runner cache initialization')
     if 'echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"' not in source:
         problems.append('HF_HOME not exported through GITHUB_ENV')
     if '          python3 scripts/test-qwen-workflow-context.py' not in source:
         problems.append('CI has not enabled this guard')
-    if "qwen-6.6.24-hf-gguf-weight-identity-" not in source:
+    if "qwen-6.6.25-hf-gguf-position-parity-" not in source:
         problems.append('incorrect host artifact version')
     return problems
 
