@@ -1,3 +1,7 @@
+# Lab 6.6.16: CPU instruction-set host diagnostic
+
+Version 6.6.16 adds a synthetic-only host experiment comparing AVX2/FMA-enabled and portable x86-64 llama.cpp builds for the same Q8_0 and BF16 GGUFs. It does **not** change Android transcription or establish official Qwen M-RoPE parity. See [LAB_6_6_16_CPU_ISA_ISOLATION.md](LAB_6_6_16_CPU_ISA_ISOLATION.md).
+
 # WhisperRecorder 6.6.15 — Q8 vs BF16 precision/batching isolation (host-only)
 
 The successful 6.6.14 test showed that 128-vs-256 microbatch changes cause

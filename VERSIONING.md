@@ -1,3 +1,9 @@
+# Lab 6.6.16 — host CPU ISA isolation
+
+- `versionName=6.6.16`, `versionCode=66016`, separate Lab package and existing signing workflow preserved.
+- New host-only SIMD versus portable x86 CPU CMake configurations, synthetic numerical evaluation and CI artifacts.
+- Android JNI/native CPU decoder and QNN path are unchanged; GitHub still must compile the APK and run the GGUF test.
+
 ## v6.6.15 (versionCode 66015)
 Synthetic-only host precision control: Q8_0 and BF16 weights, 128 vs 256 microbatch, unified vs three-stage, original synthetic embeddings and 156 text filler tokens. Android normal inference unchanged; GH workflow does the real model run.
 

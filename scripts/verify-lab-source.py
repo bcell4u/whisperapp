@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.15\nversionName=6.6.15\nversionCode=66015\n',
-      '6.6.15 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.16\nversionName=6.6.16\nversionCode=66016\n',
+      '6.6.16 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.15 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.16 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,23 +360,24 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.15-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.16-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66015'",
-               "versionName='6.6.15-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66016'",
+               "versionName='6.6.16-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.15 standalone host diagnostic must remain synthetic-only and fail closed.
+# 6.6.16 standalone CPU ISA diagnostic must remain synthetic-only and fail closed.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
 for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py',
                'test-qwen-input-kind-isolation.py', 'test-qwen-precision-batch.py',
-               'qwen-mixed-reference', 'evaluate-qwen-precision-batch.py',
-               'PRECISION_BATCH_REPORT.json', 'sha256sum -c -',
+               'test-qwen-cpu-isa.py', 'qwen-mixed-reference',
+               'evaluate-qwen-cpu-isa.py', 'CPU_ISA_REPORT.json', 'sha256sum -c -',
                'bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971',
                '12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50',
-               'reference_kind=SAME_HOST_PRECISION_BATCH_CONTROL',
+               'reference_kind=SAME_HOST_CPU_ISA_CONTROL',
+               'GGML_AVX2=ON', 'GGML_AVX2=OFF', 'GGML_NATIVE=OFF',
                'mrope_parity=UNQUALIFIED'):
-    check(marker in host_workflow, f'precision host workflow missing {marker}')
+    check(marker in host_workflow, f'CPU ISA host workflow missing {marker}')
 host_source = read('verification/host/qwen_reference_sliced.cpp')
 for marker in ('llama_decode(', 'positions.resize(4 * n)', 'positions[axis*n + i]',
                'kTeacher = {11528,4128,102064,13806}', '"logits-step-00.f32le"'):
@@ -427,18 +428,28 @@ for marker in ('BF16_SHA256', 'Q8_SHA256', 'FAIL_REPLAY', 'INCONCLUSIVE_Q8_CONTR
     check(marker in precision, f'precision comparator missing {marker}')
 for marker in ('INCONCLUSIVE_INCOMPLETE', 'FAIL_REPLAY', 'real historical vector controls'):
     check(marker in precision_test, f'precision regression test missing {marker}')
-check('qwen-6.6.15-host-precision-batch-' in host_workflow and
-      'artifact/PRECISION_BATCH_REPORT.json' in host_workflow and
-      'python3 scripts/test-qwen-precision-batch.py' in host_workflow,
-      'new host precision test/report/output not wired into CI')
+isa_eval = read('scripts/evaluate-qwen-cpu-isa.py')
+isa_test = read('scripts/test-qwen-cpu-isa.py')
+for marker in ('Q8_BATCH_EFFECT_REDUCED_ON_PORTABLE', 'CPU_ISA_VARIANTS_DIFFER_BATCH_EFFECT_PERSISTS',
+               'FAIL_REPLAY', 'INCONCLUSIVE_Q8_CONTROL', 'mean_microbatch_rmse',
+               'model_math_independent'):
+    check(marker in isa_eval, f'CPU ISA evaluator missing {marker}')
+for marker in ('INCONCLUSIVE_INCOMPLETE', 'FAIL_REPLAY', 'qwen-6.6.15-host-precision-batch-8.zip'):
+    check(marker in isa_test, f'CPU ISA regression control missing {marker}')
+check('qwen-6.6.16-host-cpu-isa-' in host_workflow and
+      'artifact/CPU_ISA_REPORT.json' in host_workflow and
+      'python3 scripts/test-qwen-cpu-isa.py' in host_workflow,
+      'new host CPU ISA test/report/output not wired into CI')
 check('QWEN_REFERENCE_MODEL_Q8' in host_workflow and
       'QWEN_REFERENCE_MODEL_BF16' in host_workflow and
       'for precision in q8 bf16' in host_workflow and
-      'for kind in orig text' in host_workflow and
+      'for isa in simd portable' in host_workflow and
       'for UBATCH in 128 256' in host_workflow,
-      'precision model/input/microbatch controls not executed')
+      'CPU ISA model/variant/microbatch controls not executed')
+check('if(NOT DEFINED GGML_NATIVE)' in cmake_host and 'set(GGML_NATIVE OFF CACHE BOOL "" FORCE)' in cmake_host,
+      'host CMake must honor explicit ISA settings and keep old non-native default')
 if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.15 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.16 source/workflow static gates (NOT an APK compile)')
