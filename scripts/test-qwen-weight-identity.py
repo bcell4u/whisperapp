@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-contained positive/negative controls for 6.6.22 tensor identity audit.
+"""Self-contained positive/negative controls for 6.6.23 tensor identity audit.
 
 Tiny, entirely invented 10-layer tensors test the GGUF/safetensors parsers,
 BF16 representation, suffix mapping and fail-closed checksum contracts.
@@ -165,4 +165,4 @@ with tempfile.TemporaryDirectory() as td:
     try:a.audit(gguf,hf,verify_hashes=False)
     except ValueError as e:assert 'GGUF_MAGIC_MISMATCH' in str(e)
     else:raise AssertionError('bad GGUF magic accepted')
-print('PASS 6.6.22 weight audit: exact BF16/F32 norm conversion, real-sized tokenizer metadata, malformed-array guards, checksums')
+print('PASS 6.6.23 weight audit: exact BF16/F32 norm conversion, real-sized tokenizer metadata, malformed-array guards, checksums')

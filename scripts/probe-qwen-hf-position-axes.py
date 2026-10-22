@@ -84,7 +84,7 @@ def run(features, checkpoint, s26_logits, output):
                 else 'INCONCLUSIVE_EQUAL_AXIS_REPRESENTATIONS')
         # This synthetic offset should be meaningful when 4-axis is supported,
         # but any difference is not evidence of an app defect.
-        report={'schema':1,'release':'6.6.22','status':status,'reference_kind':'INDEPENDENT_HF_POSITION_SHAPE_CONTROLS',
+        report={'schema':1,'release':'6.6.23','status':status,'reference_kind':'INDEPENDENT_HF_POSITION_SHAPE_CONTROLS',
                 'hf_revision':PINNED_REV,'hf_safetensors_sha256':PINNED_HF_SHA,
                 'synthetic_features_sha256':ref.FEATURE_SHA,'model_dtype':'BF16','attention_mode':'eager',
                 'transformers_version':transformers.__version__,'torch_version':torch.__version__,

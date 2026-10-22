@@ -10,7 +10,7 @@ def evaluate(folder):
         path=folder/file
         try:
             data=json.loads(path.read_text());
-            if data.get('release')!='6.6.22' or not isinstance(data.get('status'),str):
+            if data.get('release')!='6.6.23' or not isinstance(data.get('status'),str):
                 raise ValueError('REPORT_SCHEMA_OR_VERSION_MISMATCH')
             phases[phase]={'status':data['status'],'available':True}
             if phase=='storage':
@@ -27,7 +27,7 @@ def evaluate(folder):
     elif phases['storage']['status'].startswith('INCONCLUSIVE') or phases['qk']['status'].startswith('INCONCLUSIVE') or phases['positions']['status'].startswith('INCONCLUSIVE'):
         status='COMPLETED_WITH_UNRESOLVED_CONTROLS'
     else:status='MULTIPHASE_CONTROLS_COMPLETED'
-    return {'schema':1,'release':'6.6.22','status':status,'phases':phases,
+    return {'schema':1,'release':'6.6.23','status':status,'phases':phases,
             'full_model_identity':'NOT_ESTABLISHED','official_mrope_parity':'UNQUALIFIED',
             'phone_decoder_changed':False,'synthetic_only':True,
             'next_decision':'Inspect unresolved layout/position evidence; do not change Android inference without independent correctness and accuracy tests'}

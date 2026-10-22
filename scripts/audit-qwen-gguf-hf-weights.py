@@ -321,7 +321,7 @@ def audit(gguf_path,hf_path,verify_hashes=True):
             metadata={k:v for k,v in kv.items() if k=='general.architecture' or
                       any(key in k for key in ('rope','head_count','embedding_length','block_count','attention'))}
             return {
-                'schema':2,'release':'6.6.22','status':status,
+                'schema':2,'release':'6.6.23','status':status,
                 'reference_kind':'CHECKPOINT_TENSOR_IDENTITY_AUDIT',
                 'hf_model':'Qwen/Qwen3-ASR-0.6B-hf','hf_revision':HF_REV,
                 'gguf_model':'ggml-org/Qwen3-ASR-0.6B-GGUF/bf16',

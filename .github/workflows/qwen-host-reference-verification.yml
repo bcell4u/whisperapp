@@ -1,4 +1,4 @@
-# 6.6.22 host-only multi-phase decoder audit; never changes Android inference.
+# 6.6.23 host-only multi-phase decoder audit; never changes Android inference.
 name: Qwen multistage decoder parity investigation
 on:
   push:
@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      HF_HOME: ${{ runner.temp }}/qwen-hf-cache
       HF_HUB_DISABLE_TELEMETRY: '1'
       OMP_NUM_THREADS: '4'
       TOKENIZERS_PARALLELISM: 'false'
@@ -31,6 +30,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Initialize Hugging Face cache in runner temporary directory
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_TEMP:-}" || { echo 'RUNNER_TEMP unavailable' >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/qwen-hf-cache"
+          echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"
       - name: Phase 0 - validate source and no-model controls
         run: |
           set -euo pipefail
@@ -38,6 +43,7 @@ jobs:
           python3 scripts/verify-lab-source.py
           python3 scripts/test-qwen-weight-identity.py
           python3 scripts/test-qwen-multiphase.py
+          python3 scripts/test-qwen-workflow-context.py
           python3 scripts/test-qwen-independent-reference.py
       - name: Install pinned-independent-reference Python environment
         run: |
@@ -110,7 +116,7 @@ jobs:
           python3 scripts/evaluate-qwen-multiphase.py \
             --artifact-dir artifact --output artifact/MULTIPHASE_REPORT.json
           {
-            echo 'WhisperRecorder v6.6.22 multi-stage model-and-position audit'
+            echo 'WhisperRecorder v6.6.23 multi-stage model-and-position audit'
             echo "lab_commit=$GITHUB_SHA"
             echo 'huggingface_checkpoint=Qwen/Qwen3-ASR-0.6B-hf'
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
@@ -126,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.22-hf-gguf-weight-identity-${{ github.run_number }}
+          name: qwen-6.6.23-hf-gguf-weight-identity-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
