@@ -1,5 +1,5 @@
-# 6.6.17 HOST ONLY: attention-mode request controls, synthetic inputs only.
-name: Qwen host attention-path isolation
+# 6.6.18 HOST ONLY: verified attention graph controls + synthetic greedy-token impact.
+name: Qwen host greedy-token impact
 on:
   push:
     branches: [main]
@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
 jobs:
-  attention-path-isolation:
+  greedy-token-impact:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -39,6 +39,7 @@ jobs:
           python3 scripts/test-qwen-precision-batch.py
           python3 scripts/test-qwen-cpu-isa.py
           python3 scripts/test-qwen-attention-path.py
+          python3 scripts/test-qwen-generation-impact.py
       - name: Install host C++ dependencies
         run: |
           set -euo pipefail
@@ -60,7 +61,7 @@ jobs:
       - name: Build fixed AVX2 host decoder
         run: |
           set -euo pipefail
-          BUILD="$RUNNER_TEMP/qwen-ref-attention"
+          BUILD="$RUNNER_TEMP/qwen-ref-greedy"
           cmake -S verification/host -B "$BUILD" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
@@ -88,51 +89,55 @@ jobs:
           echo "12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50  $BF16" | sha256sum -c -
           echo "QWEN_REFERENCE_MODEL_Q8=$Q8" >> "$GITHUB_ENV"
           echo "QWEN_REFERENCE_MODEL_BF16=$BF16" >> "$GITHUB_ENV"
-      - name: Evaluate same-host requested Flash Attention branches
+      - name: Evaluate synthetic greedy output under verified attention graph paths
         run: |
           set -euo pipefail
           mkdir -p artifact
           FEATURES=verification/fixtures/s26-synthetic-features.f32le
-          RUNNER="$RUNNER_TEMP/qwen-ref-attention/qwen-mixed-reference"
+          RUNNER="$RUNNER_TEMP/qwen-ref-greedy/qwen-mixed-reference"
           ARGS=()
+          # The Q8 test spans grouping and microbatch boundaries. BF16 is a
+          # high-precision control with a unified prompt only.
           for precision in q8 bf16; do
             case "$precision" in
-              q8) MODEL="$QWEN_REFERENCE_MODEL_Q8" ;;
-              bf16) MODEL="$QWEN_REFERENCE_MODEL_BF16" ;;
+              q8) MODEL="$QWEN_REFERENCE_MODEL_Q8"; MODES='unified three-stage' ;;
+              bf16) MODEL="$QWEN_REFERENCE_MODEL_BF16"; MODES='unified' ;;
             esac
             for attention in off on; do
-              for mode in unified three-stage; do
+              for mode in $MODES; do
                 case "$mode" in unified) MODE_KEY=unified ;; three-stage) MODE_KEY=three_stage ;; esac
                 for UBATCH in 128 256; do
                   KEY="${precision}_flash_${attention}_${MODE_KEY}_u${UBATCH}"
                   mkdir -p "artifact/$KEY"
-                  "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" "$mode" "$UBATCH" 4 original "flash-$attention" \
+                  "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" "$mode" "$UBATCH" 4 original "flash-$attention" greedy-24 \
                     2>&1 | tee "artifact/$KEY/inference.log"
                   ARGS+=( "--${KEY//_/-}" "artifact/$KEY" )
                 done
               done
-              KEY="${precision}_flash_${attention}_unified_u256_replay"
-              mkdir -p "artifact/$KEY"
-              "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" unified 256 4 original "flash-$attention" \
-                2>&1 | tee "artifact/$KEY/inference.log"
-              ARGS+=( "--${KEY//_/-}" "artifact/$KEY" )
+              if [ "$precision" = q8 ]; then
+                KEY="q8_flash_${attention}_unified_u256_replay"
+                mkdir -p "artifact/$KEY"
+                "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" unified 256 4 original "flash-$attention" greedy-24 \
+                  2>&1 | tee "artifact/$KEY/inference.log"
+                ARGS+=( "--${KEY//_/-}" "artifact/$KEY" )
+              fi
             done
           done
-          python3 scripts/evaluate-qwen-attention-path.py \
+          python3 scripts/evaluate-qwen-generation-impact.py \
             --fixtures verification/fixtures \
             --llama-revision "$REFERENCE_LLAMA_REV" \
-            --output artifact/ATTENTION_PATH_REPORT.json "${ARGS[@]}"
+            --output artifact/GENERATION_IMPACT_REPORT.json "${ARGS[@]}"
       - name: Create explicit inconclusive report on any failure
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          if [ ! -s artifact/ATTENTION_PATH_REPORT.json ]; then
+          if [ ! -s artifact/GENERATION_IMPACT_REPORT.json ]; then
             python3 - <<'PYREPORT'
           import json
           from pathlib import Path
-          Path('artifact/ATTENTION_PATH_REPORT.json').write_text(json.dumps({
-             'schema':1,'release':'6.6.17','status':'INCONCLUSIVE',
+          Path('artifact/GENERATION_IMPACT_REPORT.json').write_text(json.dumps({
+             'schema':1,'release':'6.6.18','status':'INCONCLUSIVE',
              'reason':'SETUP_COMPILATION_DOWNLOAD_OR_INFERENCE_FAILED',
              'model_math_independent':False,'official_qwen_parity':'NOT_VERIFIED',
              'mrope_parity':'UNQUALIFIED'
@@ -145,11 +150,12 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.17 host requested Flash Attention OFF vs ON'
+            echo 'WhisperRecorder 6.6.18 same-host graph operator + synthetic greedy generation control'
             echo "lab_commit=$GITHUB_SHA"
             echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
-            echo 'reference_kind=SAME_HOST_ATTENTION_REQUEST_CONTROL'
-            echo 'attention_kernel_execution_independently_verified=false'
+            echo 'reference_kind=SAME_HOST_GRAPH_ATTESTATION_PLUS_GREEDY_DECISIONS'
+            echo 'graph_operations_verified_from_runtime_logs=true_when_evaluator_succeeds'
+            echo 'hardware_kernel_execution_verified=false'
             echo 'model_math_independent=false'
             echo 'official_qwen_parity=NOT_VERIFIED'
             echo 'mrope_parity=UNQUALIFIED'
@@ -159,10 +165,11 @@ jobs:
             echo 's26_logits_sha256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
             echo 'threads=4; n_ctx=512; n_batch=256; n_ubatch=128_or_256'
             echo 'input_kind=synthetic_audio_embeddings; prompt_grouping=unified,three_stage'
-            echo 'requested_flash_attention=disabled,enabled; actual_kernel_path_not_traced'
+            echo 'requested_flash_attention=disabled,enabled; graph operators checked against runtime logs'
+            echo 'max_greedy_tokens=24; stop_at_model_eos=true; no_text_decoding_or_user_audio'
             echo "compiler=$(g++ --version | head -1)"
           } > artifact/PROVENANCE.txt
-          FILE="$RUNNER_TEMP/qwen-ref-attention/CMakeCache.txt"
+          FILE="$RUNNER_TEMP/qwen-ref-greedy/CMakeCache.txt"
           if [ -f "$FILE" ]; then
             grep -E '^(GGML_(NATIVE|SSE42|AVX|AVX2|AVX512|FMA|F16C|BMI2|BLAS|LLAMAFILE):BOOL)=' "$FILE" \
               > artifact/CMAKE_FLAGS.txt || true
@@ -171,7 +178,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.17-host-attention-path-${{ github.run_number }}
+          name: qwen-6.6.18-host-generation-impact-${{ github.run_number }}
           path: artifact/
           retention-days: 14
           if-no-files-found: error

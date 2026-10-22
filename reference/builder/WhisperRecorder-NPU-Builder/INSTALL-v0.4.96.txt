@@ -1,0 +1,24 @@
+WhisperRecorder NPU Builder v0.4.96 — optional ARM64 dotprod build candidate
+
+What is new
+-----------
+* Default Qwen Bridge benchmark: ONE Q8 full-recording decoder run at fixed 4/4 CPU threads, plus a two-segment canary and 19 QNN encoder calls; no repeat warming trials.
+* Optional, separate GitHub workflow .github/workflows/qwen-native-bridge-dotprod-probe.yml builds a CPU dot-product accelerated Android ARM64 probe using pinned llama.cpp v0.6.0. The normal native workflow remains unchanged.
+* Build uses -march=armv8.2-a+dotprod across wrapper and llama.cpp/ggml CPU sources.
+* The candidate checks Android HWCAP ASIMDDP before running llama.cpp. Windows benchmark validates the new protocol on the phone before QNN encoding.
+* Privacy-safe benchmark report indicates baseline_arm64 or arm64_dotprod_candidate and records CPU time, wall time, peak RSS, generated token hashes and verified cleanup.
+
+How to try the optional optimized candidate
+-------------------------------------------
+1. Unzip the complete v0.4.96 Windows Builder over program files, retaining your own workspace, tools, caches, models and recordings.
+2. Add the supplied qwen-native-bridge-dotprod-probe.yml to .github/workflows in bcell4u/whisperapp. This is a NEW, separate native-only workflow. Commit and run it once from GitHub Actions. Do NOT start an APK workflow.
+3. Download GitHub artifact qwen-android-arm64-dotprod-probe and select its ZIP as the native probe in Builder's Qwen NPU Bridge tab (Browse). Keep old native ZIP available for fallback.
+4. Use the same ~220-second audio and Qwen3-ASR-0.6B-Q8_0.gguf, select provisional benchmark consent. Leave quant comparison, matched-thread and cooling options UNCHECKED; keep 'RECOMMENDED: one Q8 decoder run' checked.
+5. Click 'RUN gated Q8 first-run decoder benchmark' once. If successful, upload the WhisperRecorder-Qwen-MultiSegment-Benchmark ZIP. Do not blindly retry after unverified cleanup.
+
+Limitations
+-----------
+* This is source and Windows package only. Native optimized binary has NOT been built on GitHub or run on the Galaxy S26; no performance improvement is yet established.
+* On-device target is ARM64 CPU dot-product instructions. Device compatibility is checked before QNN work and missing support must cause a safe failure, not an implicit CPU fallback.
+* Cached Q8 decoder is still the baseline. No production WhisperRecorder, model, recordings or installed Android app changed.
+* This measures decoder time, not an integrated app or a calibrated energy metric. Model output correctness and authoritative M-RoPE remain provisional.

@@ -173,7 +173,7 @@ internal object QwenLabModelDownloader {
             conn.connectTimeout = 20_000
             conn.readTimeout = 30_000
             conn.setRequestProperty("Accept-Encoding", "identity")
-            conn.setRequestProperty("User-Agent", "WhisperRecorder-Qwen-Lab/6.6.0")
+            conn.setRequestProperty("User-Agent", "WhisperRecorder-Qwen-Lab/6.6.2")
             val code = try { conn.responseCode } catch (e: Exception) {
                 conn.disconnect()
                 throw e
