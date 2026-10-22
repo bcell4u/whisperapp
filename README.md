@@ -1,3 +1,11 @@
+# WhisperRecorder 6.6.10 — same-host chunking vs API isolation
+
+The 6.6.9 CI result found numerically different logits between standard **three-stage** batch handling and extended **unified** batch handling. The extended unified path was closer to the S26 first-token checkpoint (RMSE 0.3133 vs 0.4713) but neither established official correctness.
+
+**New in 6.6.10:** execute the extended batch API in **three stages** with the exact same prefix/audio/suffix boundaries as the standard API, then compare all three paths on the same host with the same model, parameters, teacher-forced tokens and synthetic features. The GitHub workflow starts automatically after pushing diagnostic changes to `main`. See [LAB_6_6_10_CHUNK_ISOLATION.md](LAB_6_6_10_CHUNK_ISOLATION.md).
+
+**Normal Android transcription remains unchanged.** No S26 test or new model download is necessary. Host comparisons share llama.cpp mathematics and **cannot** prove official Qwen M-RoPE parity.
+
 # WhisperRecorder 6.6.9 — same-host batching path numerical isolation
 
 **Android ASR decoding is unchanged.** 6.6.9 adds an independent hosted extended mixed-batch decoder in addition to the 6.6.8 standard split-batch decoder. A GitHub Actions workflow automatically runs both paths on the same CPU, llama.cpp commit, GGUF and synthetic input when test code changes on `main`. It exports `BATCH_PATH_REPORT.json` and failure data, explicitly leaving independent model mathematics and official M-RoPE unverified. See [LAB_6_6_9_SAME_HOST_BATCH_PATHS.md](LAB_6_6_9_SAME_HOST_BATCH_PATHS.md). No new on-device test is needed.

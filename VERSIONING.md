@@ -1,3 +1,10 @@
+# Lab v6.6.10 three-path decoder batching isolation
+
+- versionName `6.6.10-dev`, versionCode `66010`, prerelease tags `v6.6.10-lab.*`.
+- One additional **GitHub-only** llama.cpp host test: extended API with a 3-stage prefix/audio/suffix prefill. Compare to the existing standard split API and extended unified API on exactly the same CPU/model/revision; all retain the four fixed teacher-forced tokens.
+- Android decoder binary source and normal transcription remain unchanged. Independent official Qwen logits/M-RoPE are still unqualified.
+- New artifact `CHUNK_ISOLATION_REPORT.json`, `PROVENANCE.txt`, and the synthetic-only 5-step vectors.
+
 # Lab v6.6.9 host batch path diagnostic build
 
 - Experimental app versionName `6.6.9-dev`; Android versionCode `66009`; GitHub prerelease tags `v6.6.9-lab.*`.

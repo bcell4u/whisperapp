@@ -1,6 +1,6 @@
-# 6.6.9 same-host comparison. The Android decoder and GGUF model are unchanged.
+# 6.6.10 same-host grouping/API isolation. The Android decoder and GGUF model are unchanged.
 # Runs automatically when diagnostic code changes on main, or by manual dispatch.
-name: Qwen host batch-path comparison
+name: Qwen host chunking isolation
 on:
   push:
     branches: [main]
@@ -9,6 +9,8 @@ on:
       - 'verification/fixtures/**'
       - 'scripts/evaluate-qwen-*.py'
       - 'scripts/test-qwen-batch-paths.py'
+      - 'scripts/evaluate-qwen-chunk-isolation.py'
+      - 'scripts/test-qwen-chunk-isolation.py'
       - '.github/workflows/qwen-host-reference-verification.yml'
   workflow_dispatch:
     inputs:
@@ -23,7 +25,7 @@ on:
 permissions:
   contents: read
 jobs:
-  synthetic-host-batch-compare:
+  synthetic-host-chunk-isolation:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -34,6 +36,7 @@ jobs:
           set -euo pipefail
           python3 scripts/test-qwen-external-reference.py
           python3 scripts/test-qwen-batch-paths.py
+          python3 scripts/test-qwen-chunk-isolation.py
       - name: Install host C++ build dependencies
         run: |
           set -euo pipefail
@@ -72,31 +75,36 @@ jobs:
             'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf?download=true'
           echo "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971  $MODEL" | sha256sum -c -
           echo "QWEN_REFERENCE_MODEL=$MODEL" >> "$GITHUB_ENV"
-      - name: Compare split and extended mixed batching using identical host flags
+      - name: Compare split, unified extended, and three-stage extended paths
         run: |
           set -euo pipefail
-          mkdir -p artifact/host-split artifact/host-mixed artifact/host-mixed-replay artifact/host-axis-shift
+          mkdir -p artifact/host-split artifact/host-mixed artifact/host-mixed-replay artifact/host-three-stage artifact/host-three-stage-replay artifact/host-axis-shift
           SPLIT="$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
           MIXED="$RUNNER_TEMP/qwen-ref-build/qwen-mixed-reference"
           FEATURES=verification/fixtures/s26-synthetic-features.f32le
           "$SPLIT" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-split linear4
-          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed
-          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed-replay
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed unified
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed-replay unified
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-three-stage three-stage
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-three-stage-replay three-stage
           "$SPLIT" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-axis-shift audio-axis-shift
-          python3 scripts/evaluate-qwen-batch-paths.py \
+          python3 scripts/evaluate-qwen-chunk-isolation.py \
             --fixtures verification/fixtures --split artifact/host-split \
-            --mixed artifact/host-mixed --replay artifact/host-mixed-replay \
-            --llama-revision "$REFERENCE_LLAMA_REV" --output artifact/BATCH_PATH_REPORT.json
+            --unified artifact/host-mixed --three-stage artifact/host-three-stage \
+            --unified-replay artifact/host-mixed-replay \
+            --three-stage-replay artifact/host-three-stage-replay \
+            --llama-revision "$REFERENCE_LLAMA_REV" \
+            --output artifact/CHUNK_ISOLATION_REPORT.json
       - name: Create an explicit inconclusive report if model execution failed
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          if [ ! -s artifact/BATCH_PATH_REPORT.json ]; then
+          if [ ! -s artifact/CHUNK_ISOLATION_REPORT.json ]; then
             python3 - <<'PYREPORT'
           import json
           from pathlib import Path
-          Path('artifact/BATCH_PATH_REPORT.json').write_text(json.dumps({
+          Path('artifact/CHUNK_ISOLATION_REPORT.json').write_text(json.dumps({
               'schema': 1,
               'status': 'INCONCLUSIVE',
               'reason': 'HOST_EXECUTION_OR_SETUP_FAILED_BEFORE_NUMERICAL_COMPARISON',
@@ -112,10 +120,10 @@ jobs:
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.9 same-host synthetic-only batching comparison'
+            echo 'WhisperRecorder 6.6.10 same-host synthetic-only chunking versus API isolation'
             echo "lab_commit=$GITHUB_SHA"
             echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
-            echo 'reference_kind=HOST_SAME_CPU_STANDARD_VS_EXTENDED_BATCH'
+            echo 'reference_kind=HOST_SAME_CPU_CHUNKING_VS_API_ISOLATION'
             echo 'model_math_independent=false'
             echo 'official_qwen_parity=NOT_VERIFIED'
             echo 'mrope_parity=UNQUALIFIED'
@@ -124,13 +132,14 @@ jobs:
             echo 's26_logit_sha256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
             echo 'n_ctx=512 n_batch=256 n_ubatch=256 decode_threads=4 batch_threads=4 gpu_layers=0'
             echo 'teacher_forced_steps=5; only step00 corresponds to existing S26 reference'
-            echo 'Use BATCH_PATH_REPORT.json; 6.6.8 report was produced on separate invocation'
+            echo 'paths=standard-three-stage,extended-unified,extended-three-stage; each extended path replayed'
+            echo 'Use CHUNK_ISOLATION_REPORT.json; 6.6.8 report was produced on separate invocation'
           } > artifact/PROVENANCE.txt
       - name: Upload numerical artifacts on success or failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.9-host-batch-compare-${{ github.run_number }}
+          name: qwen-6.6.10-host-chunk-isolation-${{ github.run_number }}
           path: artifact/
           retention-days: 14
           if-no-files-found: error
