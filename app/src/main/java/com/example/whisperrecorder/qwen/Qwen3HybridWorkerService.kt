@@ -113,7 +113,8 @@ class Qwen3HybridWorkerService : Service() {
         } finally { if (nativeProbe.isAlive) nativeProbe.destroyForcibly() }
         require(nativeProbe.exitValue() == 0 && probeText.contains("WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001") &&
             probeText.contains("arm64_dotprod") &&
-            probeText.contains("WR_QWEN_PROMPT_ROLE_8948_872_V1")) { "Native bridge protocol/CPU mismatch" }
+            probeText.contains("WR_QWEN_PROMPT_ROLE_8948_872_V1") &&
+            probeText.contains("WR_QWEN_SYNTHETIC_LOGITS_V1")) { "Native bridge protocol/CPU mismatch" }
 
         val nativeDir = File(applicationInfo.nativeLibraryDir)
         val plugin = File(nativeDir, "libonnxruntime_providers_qnn.so")
@@ -270,7 +271,8 @@ class Qwen3HybridWorkerService : Service() {
         val nativeHash = sha256File(native)
         val reference = loadFixtureReference()
         val process = ProcessBuilder(native.absolutePath, gguf.absolutePath,
-            "--multi", manifest.absolutePath, "128", "--app-private-trace")
+            "--multi", manifest.absolutePath, "128", "--app-private-trace",
+            "--synthetic-logits", "fixture")
             .directory(dir).apply {
                 environment()["LD_LIBRARY_PATH"] = applicationInfo.nativeLibraryDir
             }.start()
@@ -329,7 +331,27 @@ class Qwen3HybridWorkerService : Service() {
             val eosConsistent = nativeEos == listOf(first, second).count {
                 it.last() in listOf(QwenLabDecoderVerifier.EOS_A, QwenLabDecoderVerifier.EOS_B)
             }
-            val finalStatus = if (!eosConsistent) "FAIL_NATIVE_RECEIPT" else outcome.status
+            // Stronger local verification: compare every FP32 output logit from
+            // identical synthetic prefill passes. Never run this on lecture inputs.
+            val logitFirst = File(dir, "qwen-prefill-logits-0.f32le")
+            val logitSecond = File(dir, "qwen-prefill-logits-1.f32le")
+            val checkpoint = runCatching {
+                QwenLabLogitReplay.compareFiles(logitFirst, logitSecond)
+            }
+            val exportCheckpoint = if (checkpoint.isSuccess) {
+                runCatching { QwenLabLogitExport.save(this, logitFirst) }
+            } else null
+            val logitStatus = when {
+                checkpoint.isFailure -> "INCONCLUSIVE_LOGIT_CHECKPOINT"
+                checkpoint.getOrThrow().identical -> "PASS_LOGIT_REPLAY"
+                else -> "FAIL_LOGIT_REPLAY"
+            }
+            val finalStatus = when {
+                !eosConsistent -> "FAIL_NATIVE_RECEIPT"
+                checkpoint.isFailure -> "INCONCLUSIVE_LOGIT_CHECKPOINT"
+                !checkpoint.getOrThrow().identical -> "FAIL_LOGIT_REPLAY"
+                else -> outcome.status
+            }
             return JSONObject()
                 .put("verification_status", finalStatus)
                 .put("reference_status", outcome.referenceStatus)
@@ -340,6 +362,16 @@ class Qwen3HybridWorkerService : Service() {
                 .put("generated_tokens", outcome.tokenCount)
                 .put("model_sha256", modelHash).put("feature_sha256", featureHash)
                 .put("native_sha256", nativeHash)
+                .put("logit_replay_status", logitStatus)
+                .put("logit_sha256", checkpoint.getOrNull()?.sha256 ?: "")
+                .put("logit_first_different_index", checkpoint.getOrNull()?.firstDifferentFloat ?: -1)
+                .put("logit_max_abs_delta", checkpoint.getOrNull()?.maxAbsoluteDelta ?: -1.0)
+                .put("logit_checkpoint_export_status", when {
+                    exportCheckpoint == null -> "NOT_AVAILABLE"
+                    exportCheckpoint.isSuccess -> "SAVED"
+                    else -> "FAILED"
+                })
+                .put("logit_checkpoint_export_filename", exportCheckpoint?.getOrNull() ?: "")
                 .put("synthetic_export_status", if (exported.isSuccess) "SAVED" else "FAILED")
                 .put("synthetic_export_filename", exported.getOrNull() ?: "")
                 .put("native_loads", stats.getInt("model_loads"))

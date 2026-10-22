@@ -1,3 +1,7 @@
+# Lab v6.6.7 build
+
+Experimental Qwen GGUF Lab is versionName `6.6.7-dev`, versionCode `66007`; push-triggered GitHub prerelease tags `v6.6.7-lab.*`. Main production v6.5.22 signing-secret variable names and isolated Lab ID are unchanged. See `LAB_6_6_7_LOGIT_CHECKPOINTS.md`.
+
 # Experimental 6.6.5 Lab versioning note
 
 **The authoritative version for this Lab source is now `6.6.5` / code `66005`**, with a `6.6.5-dev` debug APK name. Only the Lab application ID is emitted, and release tags are uniquely scoped (`v6.6.5-lab.*`). The original v6.5.22 baseline and its normal signing conventions are retained. See [LAB_6_6_AUTORELEASE.md](LAB_6_6_AUTORELEASE.md). The v6.5.22 documentation below remains for historical reference.

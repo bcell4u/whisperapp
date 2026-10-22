@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.6\nversionName=6.6.6\nversionCode=66006\n',
-      '6.6.6 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.7\nversionName=6.6.7\nversionCode=66007\n',
+      '6.6.7 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.6 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.7 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -121,6 +121,8 @@ app/src/main/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcher.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifier.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabVerificationLog.kt
 app/src/main/java/com/example/whisperrecorder/qwen/QwenLabSyntheticFeatureExport.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabLogitReplay.kt
+app/src/main/java/com/example/whisperrecorder/qwen/QwenLabLogitExport.kt
 app/src/main/java/com/example/whisperrecorder/speaker/OfflineSpeakerService.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerAttribution.kt
 app/src/main/java/com/example/whisperrecorder/speaker/SpeakerClusteringPolicy.kt
@@ -295,6 +297,7 @@ check('transcript' not in log_source.split('private val numericMetrics =')[1].sp
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptCleanerTest.kt')
 read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabTranscriptStitcherTest.kt')
 verification_test = read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifierTest.kt')
+read('app/src/test/java/com/example/whisperrecorder/qwen/QwenLabLogitReplayTest.kt')
 verifier = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabDecoderVerifier.kt')
 verify_log = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabVerificationLog.kt')
 export = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenLabSyntheticFeatureExport.kt')
@@ -345,10 +348,11 @@ for marker in ['WR_BRIDGE_PROBE_PROTOCOL_0496_DOTPROD_V1',
                'WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001', 'cp.n_ctx = 512',
                'llama_memory_clear(', 'cp.n_threads = decode_threads',
                'model_loads\\":1', 'LLAMA_ROPE_TYPE_MROPE',
-               'WR_QWEN_PROMPT_ROLE_8948_872_V1',
+               'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1',
                'prefix[] = {151644,8948,198,151645,198,151644,872,198,151669}']:
     check(marker in cpp, f'native protocol/performance contract missing: {marker}')
 check('WR_QWEN_PROMPT_ROLE_8948_872_V1' in read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWorkerService.kt'), 'worker does not check corrected native prompt protocol')
+check('WR_QWEN_SYNTHETIC_LOGITS_V1' in read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWorkerService.kt'), 'worker does not check synthetic logits protocol')
 cmake = read('native/qwen_bridge/CMakeLists.txt')
 check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
       'dot-product source configuration missing')
@@ -356,18 +360,21 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.6-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.7-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66006'",
-               "versionName='6.6.6-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'scripts/test-qwen-prompt-contract.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66007'",
+               "versionName='6.6.7-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
 for name in ['decoder-q8.gguf', 'encoder-qnn-fp16.bin', 'golden-synthetic-pcm-12s-f32.raw']:
     check(not list(root.rglob(name)), f'PRIVATE/large model asset in source: {name}')
 check(not list(root.rglob('*.jks')), 'keystore appears in source archive')
+check('FAIL_LOGIT_REPLAY' in verify_log and 'INCONCLUSIVE_LOGIT_CHECKPOINT' in verify_log, 'logit replay failure statuses missing')
+check('QwenLabLogitReplay.compareFiles' in worker and 'QwenLabLogitExport.save' in worker and '"--synthetic-logits", "fixture"' in worker, 'synthetic logits replay/export not connected')
+check('synthetic_logits' in cpp and 'qwen-prefill-logits-' in cpp, 'native synthetic logits export unavailable')
 if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.6 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.7 source/workflow static gates (NOT an APK compile)')

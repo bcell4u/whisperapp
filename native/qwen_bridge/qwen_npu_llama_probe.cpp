@@ -42,6 +42,8 @@ static constexpr char DUAL_TUNE_PROTOCOL_ID[] = "WR_BRIDGE_PROBE_PROTOCOL_0492_D
 static constexpr char APP_PRIVATE_PROTOCOL_ID[] = "WR_BRIDGE_APP_PRIVATE_PROTOCOL_0001";
 // Must appear in the signed APK native ELF and the on-device --probe-info output.
 static constexpr char PROMPT_ROLE_PROTOCOL_ID[] = "WR_QWEN_PROMPT_ROLE_8948_872_V1";
+// 6.6.7: synthetic-only prefill logit checkpoint, never called from lecture transcription.
+static constexpr char SYNTH_LOGITS_PROTOCOL_ID[] = "WR_QWEN_SYNTHETIC_LOGITS_V1";
 
 static std::vector<float> read_audio(const char * name) {
     std::ifstream f(name, std::ios::binary | std::ios::ate);
@@ -74,9 +76,9 @@ int main(int argc, char ** argv) {
 #endif
     if (argc == 2 && std::string(argv[1]) == "--probe-info") {
 #if defined(WR_CPU_ARM_DOTPROD)
-        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"arm64_dotprod\",\"cpu_target_protocol\":\"%s\",\"app_private_protocol\":\"%s\",\"prompt_role_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, ARM_DOTPROD_PROTOCOL_ID, APP_PRIVATE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID);
+        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"arm64_dotprod\",\"cpu_target_protocol\":\"%s\",\"app_private_protocol\":\"%s\",\"prompt_role_protocol\":\"%s\",\"synthetic_logits_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, ARM_DOTPROD_PROTOCOL_ID, APP_PRIVATE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID, SYNTH_LOGITS_PROTOCOL_ID);
 #else
-        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"baseline_arm64\",\"prompt_role_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID);
+        std::printf("WR_BRIDGE_PROBE_INFO={\"protocol\":\"%s\",\"llama_commit\":\"d812350\",\"position_kind\":\"provisional_linear_4d\",\"multi_protocol\":\"%s\",\"cpu_tune_protocol\":\"%s\",\"dual_tune_protocol\":\"%s\",\"cpu_target\":\"baseline_arm64\",\"prompt_role_protocol\":\"%s\",\"synthetic_logits_protocol\":\"%s\"}\n", PROBE_PROTOCOL_ID, MULTI_PROTOCOL_ID, CPU_TUNE_PROTOCOL_ID, DUAL_TUNE_PROTOCOL_ID, PROMPT_ROLE_PROTOCOL_ID, SYNTH_LOGITS_PROTOCOL_ID);
 #endif
         return 0;
     }
@@ -86,7 +88,10 @@ int main(int argc, char ** argv) {
     }
     // --multi uses a bounded, strictly named manifest of feature filenames in
     // the same Builder-owned phone directory. Only one model/context load.
-    const bool app_private = argc == 6 && std::string(argv[2]) == "--multi" &&
+    const bool synthetic_logits = argc == 8 && std::string(argv[2]) == "--multi" &&
+        std::string(argv[5]) == "--app-private-trace" &&
+        std::string(argv[6]) == "--synthetic-logits" && std::string(argv[7]) == "fixture";
+    const bool app_private = (argc == 6 || synthetic_logits) && std::string(argv[2]) == "--multi" &&
         std::string(argv[5]) == "--app-private-trace";
     const bool dual_tuned = argc == 9 && std::string(argv[2]) == "--multi" &&
         std::string(argv[5]) == "--decode-threads" && std::string(argv[7]) == "--batch-threads";
@@ -99,8 +104,8 @@ int main(int argc, char ** argv) {
     // Never emit private transcript-bearing token IDs during the multi benchmark.
     const bool private_trace = !multi && argc == 5 && std::string(argv[4]) == "--private-trace";
     if ((argc == 5 && !private_trace && !multi) ||
-        (argc != 5 && argc != 6 && argc != 7 && argc != 9 && argc > 4) ||
-        (argc == 6 && !app_private) || (argc == 7 && !tuned) || (argc == 9 && !dual_tuned) ||
+        (argc != 5 && argc != 6 && argc != 7 && argc != 8 && argc != 9 && argc > 4) ||
+        (argc == 6 && !app_private) || (argc == 8 && !synthetic_logits) || (argc == 7 && !tuned) || (argc == 9 && !dual_tuned) ||
         (tuned && decode_threads != 2 && decode_threads != 3 && decode_threads != 4) ||
         (dual_tuned && batch_threads != 2 && batch_threads != 3 && batch_threads != 4)) return 2;
     if (n_steps <= 0 || n_steps > 128) return 2;
@@ -200,7 +205,33 @@ int main(int argc, char ** argv) {
         if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch) != 0)
             throw std::runtime_error("Mixed-batch prefill rejected");
         const auto prefill = std::chrono::duration_cast<std::chrono::milliseconds>(clock::now()-started).count();
-        int token = argmax(llama_get_logits_ith(ctx, -1), VOCAB);
+        const float * prefill_logits = llama_get_logits_ith(ctx, -1);
+        if (synthetic_logits) {
+            if (!prefill_logits) throw std::runtime_error("Missing synthetic prefill logits");
+            // The Android worker invokes this option exclusively for the bundled
+            // synthetic fixture. Keep the checkpoint in its own private scratch
+            // folder. The normal lecture path does not write or export logits.
+            for (int i = 0; i < VOCAB; ++i) {
+                if (!std::isfinite(prefill_logits[i]))
+                    throw std::runtime_error("Nonfinite synthetic prefill logits");
+            }
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error Synthetic checkpoint FP32LE requires a little-endian Android CPU
+#endif
+            const std::string first = feature_paths[segment];
+            const size_t slash = first.find_last_of('/');
+            if (slash == std::string::npos)
+                throw std::runtime_error("Synthetic checkpoint directory missing");
+            const std::string filename = first.substr(0, slash + 1) +
+                "qwen-prefill-logits-" + std::to_string(segment) + ".f32le";
+            std::ofstream out(filename, std::ios::binary | std::ios::trunc);
+            if (!out) throw std::runtime_error("Cannot create synthetic logits");
+            out.write(reinterpret_cast<const char *>(prefill_logits),
+                      static_cast<std::streamsize>(VOCAB * sizeof(float)));
+            out.flush();
+            if (!out) throw std::runtime_error("Cannot write synthetic logits");
+        }
+        int token = argmax(prefill_logits, VOCAB);
         uint64_t token_hash = 14695981039346656037ULL; // non-cryptographic, diagnostics only
         std::vector<long long> step_times;
         int generated = 0;

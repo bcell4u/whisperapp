@@ -14,15 +14,15 @@ import java.util.UUID
 internal object QwenLabVerificationLog {
     private val stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
     private val permittedNumbers = listOf("first_divergent_token_index", "generated_tokens",
-        "native_loads", "native_threads", "elapsed_ms")
+        "native_loads", "native_threads", "elapsed_ms", "logit_first_different_index")
     private val permittedBooleans = listOf("internal_repeat_identical", "qnn_feature_repeat_identical",
         "eos_both", "decision_policy_selftest", "mrope_parity_verified", "numerical_logits_parity_verified")
-    private val permittedHashes = listOf("model_sha256", "feature_sha256", "native_sha256")
+    private val permittedHashes = listOf("model_sha256", "feature_sha256", "native_sha256", "logit_sha256")
     private val permittedStatuses = setOf("PASS_INTERNAL_ONLY", "PASS_REFERENCE_TOKENS",
         "FAIL_REFERENCE_TOKENS", "FAIL_INTERNAL_REPLAY", "FAIL_NATIVE_RECEIPT",
         "INCONCLUSIVE_NO_EOS", "INCONCLUSIVE_BAD_REFERENCE",
         "INCONCLUSIVE_REFERENCE_INPUT_MISMATCH", "INCONCLUSIVE_RUNTIME_ERROR",
-        "FAIL_QNN_FEATURE_REPLAY")
+        "FAIL_QNN_FEATURE_REPLAY", "FAIL_LOGIT_REPLAY", "INCONCLUSIVE_LOGIT_CHECKPOINT")
     private val phases = setOf("MODEL_IMPORT", "PREPARE_QNN", "VERIFY_FIXTURE", "COMPLETE")
     fun render(startedMs: Long, result: JSONObject?, errorClass: String?, lastPhase: String): String = buildString {
         appendLine("WhisperRecorder Qwen GGUF Lab - decoder fixture verification")
@@ -52,6 +52,17 @@ internal object QwenLabVerificationLog {
                 if (sha.matches(Regex("[a-f0-9]{64}"))) appendLine("$key=$sha")
             }
         }
+        appendLine("logit_replay_status=" +
+            (result?.optString("logit_replay_status")?.takeIf {
+                it in setOf("PASS_LOGIT_REPLAY", "FAIL_LOGIT_REPLAY", "INCONCLUSIVE_LOGIT_CHECKPOINT")
+            } ?: "NOT_EVALUATED"))
+        result?.optDouble("logit_max_abs_delta", Double.NaN)?.takeIf { it.isFinite() }?.let {
+            appendLine("logit_max_abs_delta=$it")
+        }
+        appendLine("logit_checkpoint_export_status=" +
+            (result?.optString("logit_checkpoint_export_status")?.takeIf {
+                it in setOf("SAVED", "FAILED", "NOT_AVAILABLE")
+            } ?: "NOT_AVAILABLE"))
         appendLine("synthetic_export_status=" +
             (result?.optString("synthetic_export_status")?.takeIf { it in setOf("SAVED", "FAILED") }
                 ?: "NOT_AVAILABLE"))

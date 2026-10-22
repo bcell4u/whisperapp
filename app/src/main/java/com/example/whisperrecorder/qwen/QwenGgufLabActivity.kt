@@ -210,6 +210,13 @@ class QwenGgufLabActivity : ComponentActivity() {
                     append("DECODER FIXTURE VERIFICATION: $status\n\n")
                     append("Identical QNN output: ${result!!.optBoolean("qnn_feature_repeat_identical")}\n")
                     append("Decoder replay: ${result!!.optBoolean("internal_repeat_identical")}\n")
+                    append("Numerical logit replay: ${result!!.optString("logit_replay_status")}\n")
+                    append("First differing logit index: ${result!!.optInt("logit_first_different_index", -1)}\n")
+                    append("Synthetic prefill logit SHA-256: ${result!!.optString("logit_sha256")}\n")
+                    if (result!!.optString("logit_checkpoint_export_status") == "SAVED") {
+                        append("Synthetic prefill checkpoint: Download/SFSU/Whisperapp/Verification/" +
+                            result!!.optString("logit_checkpoint_export_filename") + "\n")
+                    }
                     append("External reference: ${result!!.optString("reference_status")}\n")
                     append("First divergent token index: ${result!!.optInt("first_divergent_token_index", -1)}\n")
                     append("Generated tokens: ${result!!.optInt("generated_tokens")}\n")
