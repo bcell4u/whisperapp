@@ -1,3 +1,7 @@
+# 6.6.11 — host-only prefill boundary isolation
+
+versionName 6.6.11 / versionCode 66011. The Android decoder binary/source remain unchanged; the new host-only `[prefix+audio][suffix]` and `[prefix][audio+suffix]` comparisons isolate grouping effects.
+
 # Lab v6.6.10 three-path decoder batching isolation
 
 - versionName `6.6.10-dev`, versionCode `66010`, prerelease tags `v6.6.10-lab.*`.

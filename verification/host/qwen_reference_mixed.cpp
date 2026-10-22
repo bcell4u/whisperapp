@@ -55,7 +55,9 @@ struct MixedBatch {
     MixedBatch(const MixedBatch &) = delete;
     MixedBatch & operator=(const MixedBatch &) = delete;
 };
-void run(llama_context * ctx, const std::vector<float> & audio, const std::filesystem::path & folder, bool three_stage) {
+void run(llama_context * ctx, const std::vector<float> & audio, const std::filesystem::path & folder, const std::string & mode) {
+    const bool cut_after_prefix = mode == "three-stage" || mode == "audio-suffix";
+    const bool cut_after_audio = mode == "three-stage" || mode == "prefix-audio";
     MixedBatch batch(ctx);
     int position = 0;
     auto set_position = [&](int idx) {
@@ -68,11 +70,11 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
     auto add_token = [&](llama_token token) {
         return set_position(llama_batch_ext_add_token(batch.value, 0, token));
     };
-    // A/B experiment: identical extended API, positions, logits, and model. The
-    // ONLY difference is how input batches are grouped. Processing a batch
-    // updates the same KV state in both modes; do not clear the KV cache here.
+    // 6.6.11: same extended API, positions, logits and model across four
+    // grouping patterns. Processing preserves the shared KV state.
+    // prefix-audio: [prefix+audio] [suffix]; audio-suffix: [prefix] [audio+suffix].
     for (const auto token : kPrefix) add_token(token);
-    if (three_stage) {
+    if (cut_after_prefix) {
         require(llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.value) == 0,
                 "CHUNKED_PREFIX_FAILED");
         llama_batch_ext_clear(batch.value);
@@ -81,7 +83,7 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
         llama_embd value{audio.data() + static_cast<size_t>(i)*kDim, 1, kDim};
         set_position(llama_batch_ext_add_embd(batch.value, 0, value));
     }
-    if (three_stage) {
+    if (cut_after_audio) {
         require(llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.value) == 0,
                 "CHUNKED_AUDIO_FAILED");
         llama_batch_ext_clear(batch.value);
@@ -91,7 +93,7 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
     require(position == 171, "PROMPT_LENGTH_CHANGED");
     require(llama_batch_ext_set_output_logits(batch.value, last, true), "MIXED_LOGIT_FLAG_FAILED");
     require(llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.value) == 0,
-            three_stage ? "CHUNKED_SUFFIX_FAILED" : "MIXED_PREFILL_FAILED");
+            cut_after_audio ? "CHUNKED_SUFFIX_FAILED" : "MIXED_PREFILL_FAILED");
     save_logits(ctx, folder / "logits-step-00.f32le");
     for (size_t i = 0; i < kTeacher.size(); ++i) {
         llama_batch_ext_clear(batch.value);
@@ -107,12 +109,11 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 
 int main(int argc, char ** argv) {
     if (argc != 5) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf SYNTHETIC_FEATURES.f32le OUTPUT_DIR unified|three-stage\n", argv[0]);
+        std::fprintf(stderr, "Usage: %s Q8.gguf SYNTHETIC_FEATURES.f32le OUTPUT_DIR unified|three-stage|prefix-audio|audio-suffix\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
-    if (mode != "unified" && mode != "three-stage") return 2;
-    const bool three_stage = mode == "three-stage";
+    if (mode != "unified" && mode != "three-stage" && mode != "prefix-audio" && mode != "audio-suffix") return 2;
     llama_backend_init();
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
@@ -136,7 +137,7 @@ int main(int argc, char ** argv) {
         ctx_params.n_threads_batch = 4;
         ctx = llama_init_from_model(model, ctx_params);
         require(ctx != nullptr, "CONTEXT_INIT_FAILED");
-        run(ctx, features, argv[3], three_stage);
+        run(ctx, features, argv[3], mode);
         llama_free(ctx);
         llama_model_free(model);
         llama_backend_free();

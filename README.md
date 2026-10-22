@@ -1,3 +1,7 @@
+# WhisperRecorder 6.6.11 — decoder prompt boundary isolation
+
+The 6.6.10 host result demonstrated that extended three-stage prefill and standard three-stage prefill were byte-identical for all five synthetic checkpoints, while unified prefill differed. **6.6.11 isolates each of the two internal cut points** using additional extended-API modes `[prefix+audio][suffix]` and `[prefix][audio+suffix]`. A GitHub-hosted reference workflow compares five teacher-forced checkpoints, replay consistency, and the first-token checkpoint from the S26. Normal Android inference is unchanged. Report: `BOUNDARY_ISOLATION_REPORT.json`. This is not official Qwen or M-RoPE parity. See `LAB_6_6_11_BOUNDARY_ISOLATION.md`.
+
 # WhisperRecorder 6.6.10 — same-host chunking vs API isolation
 
 The 6.6.9 CI result found numerically different logits between standard **three-stage** batch handling and extended **unified** batch handling. The extended unified path was closer to the S26 first-token checkpoint (RMSE 0.3133 vs 0.4713) but neither established official correctness.
