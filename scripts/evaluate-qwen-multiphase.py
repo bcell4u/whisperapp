@@ -10,7 +10,7 @@ def evaluate(folder):
         path=folder/file
         try:
             data=json.loads(path.read_text());
-            if data.get('release')!='6.6.23' or not isinstance(data.get('status'),str):
+            if data.get('release')!='6.6.24' or not isinstance(data.get('status'),str):
                 raise ValueError('REPORT_SCHEMA_OR_VERSION_MISMATCH')
             phases[phase]={'status':data['status'],'available':True}
             if phase=='storage':
@@ -19,7 +19,10 @@ def evaluate(folder):
             elif phase=='qk':
                 phases[phase]['qk_tensors']=data.get('qk_tensor_count')
                 phases[phase]['match_counts']=data.get('match_counts')
-            else:phases[phase]['baseline_top1']=data.get('baseline_2d_top1')
+            else:
+                phases[phase]['baseline_top1']=data.get('baseline_2d_top1')
+                phases[phase]['position_input_shapes']={k: v.get('status') for k,v in data.get('variants',{}).items()}
+                phases[phase]['direct_rotary_status']=data.get('direct_rotary',{}).get('status')
         except (FileNotFoundError,ValueError,TypeError,KeyError,json.JSONDecodeError):
             phases[phase]={'status':'INCONCLUSIVE_MISSING_OR_INVALID_PHASE_REPORT','available':False}
     if not all(p['available'] for p in phases.values()):status='PARTIAL_PHASE_FAILURE'
@@ -27,7 +30,7 @@ def evaluate(folder):
     elif phases['storage']['status'].startswith('INCONCLUSIVE') or phases['qk']['status'].startswith('INCONCLUSIVE') or phases['positions']['status'].startswith('INCONCLUSIVE'):
         status='COMPLETED_WITH_UNRESOLVED_CONTROLS'
     else:status='MULTIPHASE_CONTROLS_COMPLETED'
-    return {'schema':1,'release':'6.6.23','status':status,'phases':phases,
+    return {'schema':1,'release':'6.6.24','status':status,'phases':phases,
             'full_model_identity':'NOT_ESTABLISHED','official_mrope_parity':'UNQUALIFIED',
             'phone_decoder_changed':False,'synthetic_only':True,
             'next_decision':'Inspect unresolved layout/position evidence; do not change Android inference without independent correctness and accuracy tests'}

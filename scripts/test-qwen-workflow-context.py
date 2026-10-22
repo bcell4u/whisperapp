@@ -30,7 +30,7 @@ def lint(source: str) -> list[str]:
         problems.append('HF_HOME not exported through GITHUB_ENV')
     if '          python3 scripts/test-qwen-workflow-context.py' not in source:
         problems.append('CI has not enabled this guard')
-    if "qwen-6.6.23-hf-gguf-weight-identity-" not in source:
+    if "qwen-6.6.24-hf-gguf-weight-identity-" not in source:
         problems.append('incorrect host artifact version')
     return problems
 

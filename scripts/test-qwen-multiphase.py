@@ -32,13 +32,16 @@ with tempfile.TemporaryDirectory() as tmp:
     assert r['status']=='PARTIAL_PHASE_FAILURE' and all(not x['available'] for x in r['phases'].values())
     for phase,file in multi.NAMES.items():
         status={'storage':'AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION','qk':'ALL_QK_LAYOUTS_MATCH_TESTED_CANDIDATES','positions':'EQUAL_AXIS_REPRESENTATIONS_AGREE'}[phase]
-        (p/file).write_text(json.dumps({'release':'6.6.23','status':status}))
+        (p/file).write_text(json.dumps({'release':'6.6.24','status':status}))
     assert multi.evaluate(p)['status']=='MULTIPHASE_CONTROLS_COMPLETED'
-    (p/multi.NAMES['storage']).write_text(json.dumps({'release':'6.6.23','status':'AUDITED_TENSORS_DIFFER'}))
+    (p/multi.NAMES['storage']).write_text(json.dumps({'release':'6.6.24','status':'AUDITED_TENSORS_DIFFER'}))
     assert multi.evaluate(p)['status']=='CONFIRMED_AUDITED_STORAGE_DIFFERENCE'
-    (p/multi.NAMES['storage']).write_text(json.dumps({'release':'6.6.23','status':'AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION'}))
-    (p/multi.NAMES['qk']).write_text(json.dumps({'release':'6.6.23','status':'INCONCLUSIVE_QK_LAYOUT_COVERAGE'}))
+    (p/multi.NAMES['storage']).write_text(json.dumps({'release':'6.6.24','status':'AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION'}))
+    (p/multi.NAMES['qk']).write_text(json.dumps({'release':'6.6.24','status':'INCONCLUSIVE_QK_LAYOUT_COVERAGE'}))
     assert multi.evaluate(p)['status']=='COMPLETED_WITH_UNRESOLVED_CONTROLS'
+    (p/multi.NAMES['qk']).write_text(json.dumps({'release':'6.6.24','status':'ALL_QK_LAYOUTS_MATCH_TESTED_CANDIDATES'}))
+    (p/multi.NAMES['positions']).write_text(json.dumps({'release':'6.6.24','status':'HF_2D_POSITION_CONTRACT_VERIFIED','baseline_2d_top1':11528}))
+    assert multi.evaluate(p)['status']=='MULTIPHASE_CONTROLS_COMPLETED'
     (p/multi.NAMES['positions']).write_text('{broken')
     assert multi.evaluate(p)['status']=='PARTIAL_PHASE_FAILURE'
-print('PASS 6.6.23 multiphase layout candidates, malformed reports and fail-closed classification')
+print('PASS 6.6.24 multiphase layout candidates, malformed reports and fail-closed classification')

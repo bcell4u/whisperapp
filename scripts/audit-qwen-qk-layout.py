@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""6.6.23 read-only Q/K weight layout audit against the pinned HF decoder.
+"""6.6.24 read-only Q/K weight layout audit against the pinned HF decoder.
 
 Tests direct BF16 storage AND two explicit per-head rotary permutations.
 Candidate matching is evidence of layout equivalence only, not RoPE
@@ -61,7 +61,7 @@ def audit(gguf,hf,verify_hashes=True):
             ok={'RAW_BF16_IDENTICAL','PER_HEAD_SPLIT_TO_INTERLEAVED_IDENTICAL','PER_HEAD_INTERLEAVED_TO_SPLIT_IDENTICAL'}
             results={name:sum(x['status']==name for x in records) for name in sorted({x['status'] for x in records})}
             all_ok=(len(records)==56 and all(x['status'] in ok for x in records))
-            return {'schema':1,'release':'6.6.23','reference_kind':'PINNED_HF_GGUF_QK_LAYOUT_CANDIDATES',
+            return {'schema':1,'release':'6.6.24','reference_kind':'PINNED_HF_GGUF_QK_LAYOUT_CANDIDATES',
                     'status':'ALL_QK_LAYOUTS_MATCH_TESTED_CANDIDATES' if all_ok else 'INCONCLUSIVE_QK_LAYOUT_COVERAGE',
                     'qk_tensor_count':len(records),'qk_layers_covered':len({x['layer'] for x in records}),
                     'match_counts':results,'head_counts_from_gguf':head_count,

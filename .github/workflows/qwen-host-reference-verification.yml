@@ -1,4 +1,4 @@
-# 6.6.23 host-only multi-phase decoder audit; never changes Android inference.
+# 6.6.24 host-only multi-phase decoder audit; never changes Android inference.
 name: Qwen multistage decoder parity investigation
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'scripts/audit-qwen-gguf-hf-weights.py'
       - 'scripts/audit-qwen-qk-layout.py'
       - 'scripts/probe-qwen-hf-position-axes.py'
+      - 'scripts/test-qwen-hf-position-contract.py'
       - 'scripts/evaluate-qwen-multiphase.py'
       - 'scripts/test-qwen-weight-identity.py'
       - 'scripts/test-qwen-multiphase.py'
@@ -54,6 +55,7 @@ jobs:
             'transformers>=5,<6' 'huggingface_hub>=0.30,<2' \
             'safetensors>=0.5' 'accelerate>=1.0' 'numpy>=1.26,<3'
           python3 -c 'import torch,transformers,numpy; from transformers import Qwen3ASRForConditionalGeneration; print(torch.__version__,transformers.__version__,numpy.__version__)'
+          python3 scripts/test-qwen-hf-position-contract.py
       - name: Download SHA-pinned GGUF and HF BF16 weights into ephemeral runner space
         run: |
           set -euo pipefail
@@ -98,7 +100,7 @@ jobs:
           python3 scripts/audit-qwen-qk-layout.py \
             --gguf "$GGUF_BF16" --hf "$HF_SAFETENSORS" \
             --output artifact/QK_LAYOUT_REPORT.json
-      - name: Phase 3 - independent HF equal-axis and asymmetric M-RoPE controls
+      - name: Phase 3 - HF positional API, 2D and direct RoPE controls
         id: phase_positions
         continue-on-error: true
         run: |
@@ -116,14 +118,14 @@ jobs:
           python3 scripts/evaluate-qwen-multiphase.py \
             --artifact-dir artifact --output artifact/MULTIPHASE_REPORT.json
           {
-            echo 'WhisperRecorder v6.6.23 multi-stage model-and-position audit'
+            echo 'WhisperRecorder v6.6.24 multi-stage model-and-position audit'
             echo "lab_commit=$GITHUB_SHA"
             echo 'huggingface_checkpoint=Qwen/Qwen3-ASR-0.6B-hf'
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
             echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
             echo 'gguf_bf16_sha256=12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50'
             echo 'synthetic_features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
-            echo 'stages=raw_BF16_exact;F32_norm_exact_cast;QK_layout_candidates;independent_HF_position_axis_probe'
+            echo 'stages=raw_BF16_exact;F32_norm_exact_cast;QK_layout_candidates;independent_HF_2d_position_and_rotary_rank_contract'
             echo 'official_mrope_parity=UNQUALIFIED;whole_model_identity=NOT_ESTABLISHED'
             echo 'android_inference_changed=false;synthetic_only=true'
             echo 'no_private_recordings_transcripts_weights_or_signing_material_in_artifacts=true'
@@ -132,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.23-hf-gguf-weight-identity-${{ github.run_number }}
+          name: qwen-6.6.24-hf-gguf-weight-identity-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14

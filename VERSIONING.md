@@ -1,9 +1,6 @@
-# WhisperRecorder 6.6.23 Lab versioning
+# WhisperRecorder 6.6.24 Lab versioning
 
-- Lab version `6.6.23`, Android version code `66023`; original production 6.5.22 is untouched.
-- Lab app ID and existing signing contracts preserved.
-- GitHub main builds a distinct lab APK prerelease and runs the host `qwen-6.6.23-hf-gguf-weight-identity-*` multi-stage audit.
-- Four diagnostics: checkpoint storage including FP32 norms, Q/K head layout, HF independent positional representation, and combined fail-closed classification.
-- No on-device runtime or speed changes and no private user data in reports; HF/GGUF downloads are ephemeral.
-
-- 6.6.23 corrects the invalid GitHub Actions job-level `runner.temp` expression; HF_HOME is established at runner time. No Android inference changes.
+- Separate Lab app version `6.6.24`, Android versionCode `66024`. Production 6.5.22 remains untouched.
+- GitHub Actions publishes an experimental Lab APK on pushes and runs pinned BF16 weight, Q/K layout, HF positional-interface and consolidated host verification under `qwen-6.6.24-hf-gguf-weight-identity-*`.
+- No local Android APK compilation or actual 6.6.24 GGUF/HF run is claimed.
+- HF positions are not yet certified as equivalent to Android 4-axis provisional linear M-RoPE; all tests use public models and synthetic inputs only.
