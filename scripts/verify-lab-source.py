@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.18\nversionName=6.6.18\nversionCode=66018\n',
-      '6.6.18 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.19\nversionName=6.6.19\nversionCode=66019\n',
+      '6.6.19 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.18 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.19 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,24 +360,27 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.18-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.19-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66018'",
-               "versionName='6.6.18-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66019'",
+               "versionName='6.6.19-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.18 host attention request comparison; same synthetic artifacts; fail closed.
+# 6.6.19 separate official-implementation prefill comparison; not a phone change.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
-for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py',
-               'test-qwen-cpu-isa.py', 'test-qwen-attention-path.py',
-               'test-qwen-generation-impact.py', 'evaluate-qwen-generation-impact.py',
-               'GENERATION_IMPACT_REPORT.json',
-               'qwen-6.6.18-host-generation-impact-', 'sha256sum -c -',
-               'QWEN_REFERENCE_MODEL_Q8', 'QWEN_REFERENCE_MODEL_BF16',
-               'for attention in off on', 'for UBATCH in 128 256',
-               'reference_kind=SAME_HOST_GRAPH_ATTESTATION_PLUS_GREEDY_DECISIONS',
+for marker in ('workflow_dispatch:', 'INDEPENDENT_REFERENCE_REPORT.json',
+               'qwen-6.6.19-hf-independent-prefill-',
+               'scripts/produce-qwen-hf-reference.py',
+               'scripts/evaluate-qwen-independent-reference.py',
+               'scripts/test-qwen-independent-reference.py',
+               'MODEL_REPO: Qwen/Qwen3-ASR-0.6B-hf',
+               'reference_kind=INDEPENDENT_HF_TRANSFORMERS_PREFILL',
                'mrope_parity=UNQUALIFIED'):
-    check(marker in host_workflow, f'host generation-impact workflow missing {marker}')
+    check(marker in host_workflow, f'independent HF workflow missing {marker}')
+for fn in ('scripts/produce-qwen-hf-reference.py',
+           'scripts/evaluate-qwen-independent-reference.py',
+           'scripts/test-qwen-independent-reference.py'):
+    read(fn)
 host_source = read('verification/host/qwen_reference_sliced.cpp')
 for marker in ('llama_decode(', 'positions.resize(4 * n)', 'positions[axis*n + i]',
                'kTeacher = {11528,4128,102064,13806}', '"logits-step-00.f32le"'):
@@ -456,4 +459,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.18 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.19 source/workflow static gates (NOT an APK compile)')
