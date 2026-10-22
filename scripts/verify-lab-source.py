@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.8\nversionName=6.6.8\nversionCode=66008\n',
-      '6.6.8 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.9\nversionName=6.6.9\nversionCode=66009\n',
+      '6.6.9 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.8 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.9 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,18 +360,18 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.8-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.9-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66008'",
-               "versionName='6.6.8-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66009'",
+               "versionName='6.6.9-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.8 independent-process host diagnostic must remain synthetically scoped.
+# 6.6.9 independent-process host diagnostic must remain synthetically scoped.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
-for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py', 'qwen-sliced-reference',
-               'evaluate-qwen-reference.py', 'sha256sum -c -',
+for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py', 'qwen-sliced-reference', 'qwen-mixed-reference', 'evaluate-qwen-batch-paths.py',
+               'evaluate-qwen-batch-paths.py', 'sha256sum -c -',
                'bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971',
-               'REFERENCE_KIND=HOST_LLAMA_CPP_STANDARD_BATCH_PATH', 'MROPE_PARITY=UNQUALIFIED'):
+               'reference_kind=HOST_SAME_CPU_STANDARD_VS_EXTENDED_BATCH', 'mrope_parity=UNQUALIFIED'):
     check(marker in host_workflow, f'host reference provenance/check missing: {marker}')
 host_source = read('verification/host/qwen_reference_sliced.cpp')
 for marker in ('llama_decode(', 'positions.resize(4 * n)', 'positions[axis*n + i]',
@@ -379,6 +379,24 @@ for marker in ('llama_decode(', 'positions.resize(4 * n)', 'positions[axis*n + i
     check(marker in host_source, f'host reference numeric/position contract missing: {marker}')
 check('qwen_npu_llama_probe.cpp' not in host_source,
       'Android decoder cannot be embedded in independent host runner')
+# The new host extended API path cannot accidentally become a self-comparison.
+mixed_host = read('verification/host/qwen_reference_mixed.cpp')
+for marker in ('llama_batch_ext_add_token(', 'llama_batch_ext_add_embd(',
+               'llama_batch_ext_set_pos(', 'llama_process(',
+               'kTeacher = {11528,4128,102064,13806}', 'position == 171'):
+    check(marker in mixed_host, f'missing host mixed batching contract: {marker}')
+check('qwen_npu_llama_probe.cpp' not in mixed_host and
+      'native/qwen_bridge' not in mixed_host, 'host mixed reference cannot link Android probe')
+cmake_host = read('verification/host/CMakeLists.txt')
+check('qwen_reference_mixed.cpp' in cmake_host and 'qwen_reference_sliced.cpp' in cmake_host,
+      'both reference bridge paths must link same upstream library')
+eval_host = read('scripts/evaluate-qwen-batch-paths.py')
+check('FAIL_MIXED_REPLAY' in eval_host and 'BATCH_PATH_IDENTICAL' in eval_host and
+      'INCONCLUSIVE' in eval_host and 'model_math_independent' in eval_host,
+      'host must distinguish parity, replay failure and unavailable data')
+check('scripts/test-qwen-batch-paths.py' in host_workflow and
+      'artifact/BATCH_PATH_REPORT.json' in host_workflow,
+      'CI must execute batch-path tests and export their numerical report')
 
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
 for name in ['decoder-q8.gguf', 'encoder-qnn-fp16.bin', 'golden-synthetic-pcm-12s-f32.raw']:
@@ -391,4 +409,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.8 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.9 source/workflow static gates (NOT an APK compile)')

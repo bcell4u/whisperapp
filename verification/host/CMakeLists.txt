@@ -14,3 +14,7 @@ set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LLAMA_CPP_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/upstream-llama" EXCLUDE_FROM_ALL)
 add_executable(qwen-sliced-reference qwen_reference_sliced.cpp)
 target_link_libraries(qwen-sliced-reference PRIVATE llama)
+# 6.6.9: run the standard/split and extended/mixed API on an identical host.
+# This does not link or embed any code from the Android production bridge.
+add_executable(qwen-mixed-reference qwen_reference_mixed.cpp)
+target_link_libraries(qwen-mixed-reference PRIVATE llama)

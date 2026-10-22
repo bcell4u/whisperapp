@@ -1,11 +1,19 @@
-# Separate expensive reference experiment. Start from Actions > Qwen host
-# decoder reference > Run workflow. This job never publishes or signs an APK.
-name: Qwen host decoder reference
+# 6.6.9 same-host comparison. The Android decoder and GGUF model are unchanged.
+# Runs automatically when diagnostic code changes on main, or by manual dispatch.
+name: Qwen host batch-path comparison
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'verification/host/**'
+      - 'verification/fixtures/**'
+      - 'scripts/evaluate-qwen-*.py'
+      - 'scripts/test-qwen-batch-paths.py'
+      - '.github/workflows/qwen-host-reference-verification.yml'
   workflow_dispatch:
     inputs:
       llama_revision:
-        description: 'Independent host llama.cpp library revision'
+        description: 'Pinned host llama.cpp library revision'
         required: true
         type: choice
         options:
@@ -15,24 +23,25 @@ on:
 permissions:
   contents: read
 jobs:
-  synthetic-host-reference:
+  synthetic-host-batch-compare:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - name: Checkout Lab source and S26 synthetic verification fixtures
+      - name: Checkout synthetic-only Lab source
         uses: actions/checkout@v4
-      - name: Validate fixture identity and reference evaluator failures
+      - name: Run numerical and missing-input regression tests
         run: |
           set -euo pipefail
           python3 scripts/test-qwen-external-reference.py
-      - name: Install reproducible CPU build tools
+          python3 scripts/test-qwen-batch-paths.py
+      - name: Install host C++ build dependencies
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends cmake ninja-build g++ libcurl4-openssl-dev
-      - name: Fetch official upstream llama.cpp for independent host bridge
+      - name: Fetch pinned llama.cpp source for both reference executables
         env:
-          LLAMA_REVISION: ${{ inputs.llama_revision }}
+          LLAMA_REVISION: ${{ inputs.llama_revision || 'v0.6.0' }}
         run: |
           set -euo pipefail
           case "$LLAMA_REVISION" in v0.6.0|master) ;; *) echo 'Unapproved upstream revision' >&2; exit 2;; esac
@@ -43,15 +52,17 @@ jobs:
             test "${REVISION:0:7}" = d812350 || { echo 'Pinned llama.cpp tag changed'; exit 1; }
           fi
           echo "REFERENCE_LLAMA_REV=$REVISION" >> "$GITHUB_ENV"
-      - name: Compile separate host C++ batch reference (no Android decoder source)
+      - name: Compile split and mixed host batch paths on same CPU
         run: |
           set -euo pipefail
           cmake -S verification/host -B "$RUNNER_TEMP/qwen-ref-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
-          cmake --build "$RUNNER_TEMP/qwen-ref-build" --target qwen-sliced-reference --parallel 4
+          cmake --build "$RUNNER_TEMP/qwen-ref-build" \
+            --target qwen-sliced-reference qwen-mixed-reference --parallel 4
           test -x "$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
-      - name: Download exact public Q8 GGUF temporarily and verify SHA-256
+          test -x "$RUNNER_TEMP/qwen-ref-build/qwen-mixed-reference"
+      - name: Download SHA-pinned GGUF to temporary runner directory
         run: |
           set -euo pipefail
           MODEL="$RUNNER_TEMP/Qwen3-ASR-0.6B-Q8_0.gguf"
@@ -61,42 +72,65 @@ jobs:
             'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf?download=true'
           echo "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971  $MODEL" | sha256sum -c -
           echo "QWEN_REFERENCE_MODEL=$MODEL" >> "$GITHUB_ENV"
-      - name: Compute split-batch reference logits, replay, and audio-axis perturbation
+      - name: Compare split and extended mixed batching using identical host flags
         run: |
           set -euo pipefail
-          mkdir -p artifact/host-linear4 artifact/host-replay artifact/host-axis-shift
-          EXE="$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
+          mkdir -p artifact/host-split artifact/host-mixed artifact/host-mixed-replay artifact/host-axis-shift
+          SPLIT="$RUNNER_TEMP/qwen-ref-build/qwen-sliced-reference"
+          MIXED="$RUNNER_TEMP/qwen-ref-build/qwen-mixed-reference"
           FEATURES=verification/fixtures/s26-synthetic-features.f32le
-          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-linear4 linear4
-          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-replay linear4
-          "$EXE" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-axis-shift audio-axis-shift
-          python3 scripts/evaluate-qwen-reference.py \
-            --fixtures verification/fixtures --primary artifact/host-linear4 \
-            --replay artifact/host-replay --shifted artifact/host-axis-shift \
-            --llama-revision "$REFERENCE_LLAMA_REV" --output artifact/REFERENCE_REPORT.json
-      - name: Save reference provenance and explicitly unqualified conclusion
+          "$SPLIT" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-split linear4
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed
+          "$MIXED" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-mixed-replay
+          "$SPLIT" "$QWEN_REFERENCE_MODEL" "$FEATURES" artifact/host-axis-shift audio-axis-shift
+          python3 scripts/evaluate-qwen-batch-paths.py \
+            --fixtures verification/fixtures --split artifact/host-split \
+            --mixed artifact/host-mixed --replay artifact/host-mixed-replay \
+            --llama-revision "$REFERENCE_LLAMA_REV" --output artifact/BATCH_PATH_REPORT.json
+      - name: Create an explicit inconclusive report if model execution failed
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          if [ ! -s artifact/BATCH_PATH_REPORT.json ]; then
+            python3 - <<'PYREPORT'
+          import json
+          from pathlib import Path
+          Path('artifact/BATCH_PATH_REPORT.json').write_text(json.dumps({
+              'schema': 1,
+              'status': 'INCONCLUSIVE',
+              'reason': 'HOST_EXECUTION_OR_SETUP_FAILED_BEFORE_NUMERICAL_COMPARISON',
+              'model_math_independent': False,
+              'official_qwen_parity': 'NOT_VERIFIED',
+              'mrope_parity': 'UNQUALIFIED',
+          },indent=2)+'\n')
+          PYREPORT
+          fi
+      - name: Persist reproducible model and CPU provenance
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.8 experimental synthetic-only host diagnostic'
+            echo 'WhisperRecorder 6.6.9 same-host synthetic-only batching comparison'
             echo "lab_commit=$GITHUB_SHA"
             echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
-            echo 'S26 GGUF SHA256=bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971'
-            echo 'S26 features SHA256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
-            echo 'S26 prefill SHA256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
-            echo 'REFERENCE_KIND=HOST_LLAMA_CPP_STANDARD_BATCH_PATH'
-            echo 'MODEL_MATH_INDEPENDENT=false'
-            echo 'OFFICIAL_QWEN_PARITY=NOT_VERIFIED'
-            echo 'MROPE_PARITY=UNQUALIFIED'
-            echo 'Only step-00 has corresponding S26 logits. Steps 01-04 are host reference baselines.'
+            echo 'reference_kind=HOST_SAME_CPU_STANDARD_VS_EXTENDED_BATCH'
+            echo 'model_math_independent=false'
+            echo 'official_qwen_parity=NOT_VERIFIED'
+            echo 'mrope_parity=UNQUALIFIED'
+            echo 'model_sha256=bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971'
+            echo 'feature_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
+            echo 's26_logit_sha256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
+            echo 'n_ctx=512 n_batch=256 n_ubatch=256 decode_threads=4 batch_threads=4 gpu_layers=0'
+            echo 'teacher_forced_steps=5; only step00 corresponds to existing S26 reference'
+            echo 'Use BATCH_PATH_REPORT.json; 6.6.8 report was produced on separate invocation'
           } > artifact/PROVENANCE.txt
-      - name: Upload synthetic-only reference numerical results even if comparison fails
+      - name: Upload numerical artifacts on success or failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.8-host-reference-${{ github.run_number }}
+          name: qwen-6.6.9-host-batch-compare-${{ github.run_number }}
           path: artifact/
           retention-days: 14
           if-no-files-found: error

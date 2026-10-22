@@ -1,3 +1,7 @@
+# WhisperRecorder 6.6.9 — same-host batching path numerical isolation
+
+**Android ASR decoding is unchanged.** 6.6.9 adds an independent hosted extended mixed-batch decoder in addition to the 6.6.8 standard split-batch decoder. A GitHub Actions workflow automatically runs both paths on the same CPU, llama.cpp commit, GGUF and synthetic input when test code changes on `main`. It exports `BATCH_PATH_REPORT.json` and failure data, explicitly leaving independent model mathematics and official M-RoPE unverified. See [LAB_6_6_9_SAME_HOST_BATCH_PATHS.md](LAB_6_6_9_SAME_HOST_BATCH_PATHS.md). No new on-device test is needed.
+
 # WhisperRecorder 6.6.8 — hosted reference decoder diagnostic
 
 This update adds a **separate manually triggered GitHub Actions reference runner**. Normal on-device QNN encoding and four-thread dotprod Q8 decoding are byte-for-byte unchanged from 6.6.7. The Lab APK is still produced automatically on a push to `main`. The host reference is a second implementation of the **bridge/input batching** and uses the standard `llama_batch`/`llama_decode` API, **but uses the same underlying upstream llama.cpp mathematical kernels**. It cannot by itself certify official Qwen M-RoPE or numerical correctness.
