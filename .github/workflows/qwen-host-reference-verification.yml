@@ -1,5 +1,5 @@
-# 6.6.16: same-host CPU SIMD feature control; synthetic only; no Android bridge changes.
-name: Qwen host CPU ISA isolation
+# 6.6.17 HOST ONLY: attention-mode request controls, synthetic inputs only.
+name: Qwen host attention-path isolation
 on:
   push:
     branches: [main]
@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
 jobs:
-  cpu-isa-isolation:
+  attention-path-isolation:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -38,6 +38,7 @@ jobs:
           python3 scripts/test-qwen-input-kind-isolation.py
           python3 scripts/test-qwen-precision-batch.py
           python3 scripts/test-qwen-cpu-isa.py
+          python3 scripts/test-qwen-attention-path.py
       - name: Install host C++ dependencies
         run: |
           set -euo pipefail
@@ -56,34 +57,23 @@ jobs:
             test "${REVISION:0:7}" = d812350 || { echo 'Pinned llama.cpp tag moved'; exit 1; }
           fi
           echo "REFERENCE_LLAMA_REV=$REVISION" >> "$GITHUB_ENV"
-      - name: Build portable and SIMD CPU executables from same source
+      - name: Build fixed AVX2 host decoder
         run: |
           set -euo pipefail
-          for isa in simd portable; do
-            BUILD="$RUNNER_TEMP/qwen-ref-$isa"
-            ISA_FLAGS=( -DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_AVX_VNNI=OFF \
-              -DGGML_AVX512_VNNI=OFF -DGGML_AVX512_VBMI=OFF -DGGML_AMX_TILE=OFF \
-              -DGGML_AMX_INT8=OFF -DGGML_AMX_BF16=OFF -DGGML_CPU_KLEIDIAI=OFF \
-              -DGGML_BLAS=OFF -DGGML_LLAMAFILE=OFF )
-            if [ "$isa" = simd ]; then
-              ISA_FLAGS+=( -DGGML_SSE42=ON -DGGML_AVX=ON -DGGML_AVX2=ON \
-                -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON )
-            else
-              ISA_FLAGS+=( -DGGML_SSE42=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF \
-                -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF )
-            fi
-            cmake -S verification/host -B "$BUILD" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
-              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF "${ISA_FLAGS[@]}"
-            cmake --build "$BUILD" --target qwen-mixed-reference --parallel 4
-            test -x "$BUILD/qwen-mixed-reference"
-            grep -Fq "GGML_NATIVE:BOOL=OFF" "$BUILD/CMakeCache.txt"
-            case "$isa" in
-              simd) grep -Fq 'GGML_AVX2:BOOL=ON' "$BUILD/CMakeCache.txt" ;;
-              portable) grep -Fq 'GGML_AVX2:BOOL=OFF' "$BUILD/CMakeCache.txt" ;;
-            esac
-          done
-      - name: Download and SHA-verify both public GGUFs
+          BUILD="$RUNNER_TEMP/qwen-ref-attention"
+          cmake -S verification/host -B "$BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DGGML_NATIVE=OFF -DGGML_AVX512=OFF -DGGML_AVX_VNNI=OFF \
+            -DGGML_AVX512_VNNI=OFF -DGGML_AVX512_VBMI=OFF \
+            -DGGML_AMX_TILE=OFF -DGGML_AMX_INT8=OFF -DGGML_AMX_BF16=OFF \
+            -DGGML_CPU_KLEIDIAI=OFF -DGGML_BLAS=OFF -DGGML_LLAMAFILE=OFF \
+            -DGGML_SSE42=ON -DGGML_AVX=ON -DGGML_AVX2=ON \
+            -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON
+          cmake --build "$BUILD" --target qwen-mixed-reference --parallel 4
+          test -x "$BUILD/qwen-mixed-reference"
+          grep -Fq 'GGML_AVX2:BOOL=ON' "$BUILD/CMakeCache.txt"
+      - name: Download and SHA-verify public decoder GGUFs
         run: |
           set -euo pipefail
           Q8="$RUNNER_TEMP/Qwen3-ASR-0.6B-Q8_0.gguf"
@@ -98,65 +88,68 @@ jobs:
           echo "12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50  $BF16" | sha256sum -c -
           echo "QWEN_REFERENCE_MODEL_Q8=$Q8" >> "$GITHUB_ENV"
           echo "QWEN_REFERENCE_MODEL_BF16=$BF16" >> "$GITHUB_ENV"
-      - name: Run same-weight instruction-set controls and compare all logits
+      - name: Evaluate same-host requested Flash Attention branches
         run: |
           set -euo pipefail
-          FEATURES=verification/fixtures/s26-synthetic-features.f32le
           mkdir -p artifact
+          FEATURES=verification/fixtures/s26-synthetic-features.f32le
+          RUNNER="$RUNNER_TEMP/qwen-ref-attention/qwen-mixed-reference"
           ARGS=()
           for precision in q8 bf16; do
             case "$precision" in
               q8) MODEL="$QWEN_REFERENCE_MODEL_Q8" ;;
               bf16) MODEL="$QWEN_REFERENCE_MODEL_BF16" ;;
             esac
-            for isa in simd portable; do
-              RUNNER="$RUNNER_TEMP/qwen-ref-$isa/qwen-mixed-reference"
+            for attention in off on; do
               for mode in unified three-stage; do
                 case "$mode" in unified) MODE_KEY=unified ;; three-stage) MODE_KEY=three_stage ;; esac
                 for UBATCH in 128 256; do
-                  KEY="${precision}_${isa}_${MODE_KEY}_u${UBATCH}"
+                  KEY="${precision}_flash_${attention}_${MODE_KEY}_u${UBATCH}"
                   mkdir -p "artifact/$KEY"
-                  "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" "$mode" "$UBATCH" 4 original
+                  "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" "$mode" "$UBATCH" 4 original "flash-$attention" \
+                    2>&1 | tee "artifact/$KEY/inference.log"
                   ARGS+=( "--${KEY//_/-}" "artifact/$KEY" )
                 done
               done
-              KEY="${precision}_${isa}_unified_u256_replay"
+              KEY="${precision}_flash_${attention}_unified_u256_replay"
               mkdir -p "artifact/$KEY"
-              "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" unified 256 4 original
+              "$RUNNER" "$MODEL" "$FEATURES" "artifact/$KEY" unified 256 4 original "flash-$attention" \
+                2>&1 | tee "artifact/$KEY/inference.log"
               ARGS+=( "--${KEY//_/-}" "artifact/$KEY" )
             done
           done
-          python3 scripts/evaluate-qwen-cpu-isa.py \
+          python3 scripts/evaluate-qwen-attention-path.py \
             --fixtures verification/fixtures \
             --llama-revision "$REFERENCE_LLAMA_REV" \
-            --output artifact/CPU_ISA_REPORT.json "${ARGS[@]}"
+            --output artifact/ATTENTION_PATH_REPORT.json "${ARGS[@]}"
       - name: Create explicit inconclusive report on any failure
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
-          if [ ! -s artifact/CPU_ISA_REPORT.json ]; then
+          if [ ! -s artifact/ATTENTION_PATH_REPORT.json ]; then
             python3 - <<'PYREPORT'
           import json
           from pathlib import Path
-          Path('artifact/CPU_ISA_REPORT.json').write_text(json.dumps({
-             'schema':1,'release':'6.6.16','status':'INCONCLUSIVE',
+          Path('artifact/ATTENTION_PATH_REPORT.json').write_text(json.dumps({
+             'schema':1,'release':'6.6.17','status':'INCONCLUSIVE',
              'reason':'SETUP_COMPILATION_DOWNLOAD_OR_INFERENCE_FAILED',
              'model_math_independent':False,'official_qwen_parity':'NOT_VERIFIED',
              'mrope_parity':'UNQUALIFIED'
           },indent=2)+'\n')
           PYREPORT
           fi
-      - name: Export reproducibility data and scope notes
+      - name: Record exact requested attention settings and limitations
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder 6.6.16: x86-64 SIMD vs portable CPU GGUF isolation'
+            echo 'WhisperRecorder 6.6.17 host requested Flash Attention OFF vs ON'
             echo "lab_commit=$GITHUB_SHA"
             echo "upstream_revision=${REFERENCE_LLAMA_REV:-NOT_FETCHED}"
-            echo 'reference_kind=SAME_HOST_CPU_ISA_CONTROL'
+            echo 'reference_kind=SAME_HOST_ATTENTION_REQUEST_CONTROL'
+            echo 'attention_kernel_execution_independently_verified=false'
             echo 'model_math_independent=false'
             echo 'official_qwen_parity=NOT_VERIFIED'
             echo 'mrope_parity=UNQUALIFIED'
@@ -166,22 +159,19 @@ jobs:
             echo 's26_logits_sha256=9951cd0ed4143a97f4181c3fe0b87086aaf7f77b8571c63ea41d5597ef41a8e2'
             echo 'threads=4; n_ctx=512; n_batch=256; n_ubatch=128_or_256'
             echo 'input_kind=synthetic_audio_embeddings; prompt_grouping=unified,three_stage'
-            echo 'simd=AVX2_AVX_SSE42_FMA_F16C_BMI2; portable=none_of_these'
-            echo 'Different ISA arithmetic does not by itself imply a bug.'
+            echo 'requested_flash_attention=disabled,enabled; actual_kernel_path_not_traced'
             echo "compiler=$(g++ --version | head -1)"
           } > artifact/PROVENANCE.txt
-          for isa in simd portable; do
-            FILE="$RUNNER_TEMP/qwen-ref-$isa/CMakeCache.txt"
-            if [ -f "$FILE" ]; then
-              grep -E '^(GGML_(NATIVE|SSE42|AVX|AVX2|AVX512|FMA|F16C|BMI2|BLAS|LLAMAFILE):BOOL)=' "$FILE" \
-                > "artifact/CMAKE_FLAGS_${isa}.txt" || true
-            fi
-          done
-      - name: Upload synthetic numerical checkpoints regardless of result
+          FILE="$RUNNER_TEMP/qwen-ref-attention/CMakeCache.txt"
+          if [ -f "$FILE" ]; then
+            grep -E '^(GGML_(NATIVE|SSE42|AVX|AVX2|AVX512|FMA|F16C|BMI2|BLAS|LLAMAFILE):BOOL)=' "$FILE" \
+              > artifact/CMAKE_FLAGS.txt || true
+          fi
+      - name: Upload synthetic-only checkpoints regardless of outcome
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.16-host-cpu-isa-${{ github.run_number }}
+          name: qwen-6.6.17-host-attention-path-${{ github.run_number }}
           path: artifact/
           retention-days: 14
           if-no-files-found: error

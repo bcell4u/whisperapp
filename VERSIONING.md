@@ -1,3 +1,9 @@
+# Lab 6.6.17 — host attention-path isolation
+
+- `versionName=6.6.17`, `versionCode=66017`, separate Lab package and existing signing/autorelease preserved.
+- Host-only requested Flash Attention disabled/enabled control on the same Q8/BF16 weights, four threads, unified/three-stage and n_ubatch=128/256, with five synthetic checkpoints plus deterministic replays.
+- The experiment does not trace the backend kernel, validate official Qwen mathematics or modify the Android decoder.
+
 # Lab 6.6.16 — host CPU ISA isolation
 
 - `versionName=6.6.16`, `versionCode=66016`, separate Lab package and existing signing workflow preserved.

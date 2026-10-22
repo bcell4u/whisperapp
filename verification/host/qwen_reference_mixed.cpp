@@ -122,13 +122,15 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 } // namespace
 
 int main(int argc, char ** argv) {
-    if (argc != 5 && argc != 7 && argc != 8) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler]]\n", argv[0]);
+    if (argc != 5 && argc != 7 && argc != 8 && argc != 9) {
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler] [auto|flash-off|flash-on]]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
     if (mode != "unified" && mode != "three-stage" && mode != "prefix-audio" && mode != "audio-suffix") return 2;
-    const std::string input_kind = argc == 8 ? argv[7] : "original";
+    const std::string input_kind = argc >= 8 ? argv[7] : "original";
+    const std::string attention = argc == 9 ? argv[8] : "auto";
+    if (attention != "auto" && attention != "flash-off" && attention != "flash-on") return 2;
     if (input_kind != "original" && input_kind != "zero" && input_kind != "text-filler") return 2;
     // Explicit allowlist, fail closed on malformed host-test configurations.
     int ubatch = 256;
@@ -162,13 +164,16 @@ int main(int argc, char ** argv) {
         ctx_params.n_ubatch = ubatch;
         ctx_params.n_threads = threads;
         ctx_params.n_threads_batch = threads;
+        // 6.6.17 host-only attention toggle; existing Android decoder remains untouched.
+        if (attention == "flash-off") ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        if (attention == "flash-on") ctx_params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
         ctx = llama_init_from_model(model, ctx_params);
         require(ctx != nullptr, "CONTEXT_INIT_FAILED");
         run(ctx, features, argv[3], mode, input_kind);
         llama_free(ctx);
         llama_model_free(model);
         llama_backend_free();
-        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d input_kind=%s steps=5 model_math_independent=false\n", mode.c_str(), ubatch, threads, input_kind.c_str());
+        std::printf("HOST_EXTENDED_BATCH_EXECUTED mode=%s ubatch=%d threads=%d input_kind=%s attention_request=%s steps=5 model_math_independent=false\n", mode.c_str(), ubatch, threads, input_kind.c_str(), attention.c_str());
         return 0;
     } catch (const std::exception & e) {
         std::fprintf(stderr, "INCONCLUSIVE_MIXED_HOST: %s\n", e.what());

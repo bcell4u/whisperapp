@@ -1,3 +1,13 @@
+# Lab 6.6.17: Attention execution-path control (host-only)
+
+The completed 6.6.16 host experiment showed that optimized and portable x86-64 CPU backends produce different logits, but **both retain microbatch-dependent numerical variation** (Q8 SIMD mean RMSE 0.1987; Q8 portable 0.1876; BF16 SIMD 0.0522; BF16 portable 0.0461). 6.6.17 tests requested Flash Attention **disabled vs enabled** under identical pinned host model/CPU parameters, across Q8/BF16, unified/three-stage, `n_ubatch=128/256`, five synthetic numerical checkpoints and replay tests.
+
+This is a diagnostic control, **not proof of which path is correct or that the backend used distinct kernels**. See [LAB_6_6_17_ATTENTION_PATH_ISOLATION.md](LAB_6_6_17_ATTENTION_PATH_ISOLATION.md) and [LAB_6_6_17_VALIDATION.md](LAB_6_6_17_VALIDATION.md). Official M-RoPE/numerical parity remains unverified. The Android QNN, ARM64 dot-product decoder, stitcher and production code are unchanged. GitHub Actions must compile/run the actual experiment and Lab APK.
+
+Push source to separate Lab `main`; retrieve `qwen-6.6.17-host-attention-path-*` from Actions and share it. No phone installation or private lecture upload is required.
+
+---
+
 # Lab 6.6.16: CPU instruction-set host diagnostic
 
 Version 6.6.16 adds a synthetic-only host experiment comparing AVX2/FMA-enabled and portable x86-64 llama.cpp builds for the same Q8_0 and BF16 GGUFs. It does **not** change Android transcription or establish official Qwen M-RoPE parity. See [LAB_6_6_16_CPU_ISA_ISOLATION.md](LAB_6_6_16_CPU_ISA_ISOLATION.md).
