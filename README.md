@@ -1,3 +1,24 @@
+# WhisperRecorder 6.6.15 — Q8 vs BF16 precision/batching isolation (host-only)
+
+The successful 6.6.14 test showed that 128-vs-256 microbatch changes cause
+reproducible differences for original audio embeddings, zero embeddings and
+156 plain text tokens. The effect is **not unique to audio embeddings**.
+This release compares the SAME host llama.cpp v0.6.0, CPU threads and synthetic
+prompt under Q8_0 and published BF16 decoder GGUF weights, using only the
+meaningful 128/256 and unified/three-stage configurations. Within-model
+microbatch differences are meaningful; **Q8 and BF16 logits are not expected to
+match**. See `LAB_6_6_15_PRECISION_ISOLATION.md`.
+
+Push to `main`; GitHub workflow **Qwen host precision and batch isolation**
+produces `qwen-6.6.15-host-precision-batch-*` with `PRECISION_BATCH_REPORT.json`
+and `PROVENANCE.txt`. The GitHub runner temporarily downloads two SHA-pinned
+public decoder weights (Q8 ~805 MB and BF16 ~1.51 GB); neither model is packaged
+in the Android app, source archive or output artifact. No phone test necessary.
+Existing Android native decoder and production Parakeet paths are unchanged.
+Official Qwen3-ASR numerical/M-RoPE parity is NOT YET VERIFIED.
+
+---
+
 # WhisperRecorder 6.6.14 — input-kind isolation (host-only)
 
 **Android transcription is unchanged.** The real 6.6.13 GitHub artifact showed

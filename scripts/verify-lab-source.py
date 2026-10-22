@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.14\nversionName=6.6.14\nversionCode=66014\n',
-      '6.6.14 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.15\nversionName=6.6.15\nversionCode=66015\n',
+      '6.6.15 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.14 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.15 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,45 +360,54 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.14-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.15-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66014'",
-               "versionName='6.6.14-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66015'",
+               "versionName='6.6.15-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# 6.6.14 independent-process host diagnostic must remain synthetically scoped.
+# 6.6.15 standalone host diagnostic must remain synthetic-only and fail closed.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
-for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py', 'qwen-sliced-reference', 'qwen-mixed-reference', 'evaluate-qwen-execution-sensitivity.py',
-               'evaluate-qwen-chunk-isolation.py', 'sha256sum -c -',
+for marker in ('workflow_dispatch:', 'test-qwen-external-reference.py',
+               'test-qwen-input-kind-isolation.py', 'test-qwen-precision-batch.py',
+               'qwen-mixed-reference', 'evaluate-qwen-precision-batch.py',
+               'PRECISION_BATCH_REPORT.json', 'sha256sum -c -',
                'bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971',
-               'reference_kind=HOST_SYNTHETIC_INPUT_KIND_CONTROL', 'mrope_parity=UNQUALIFIED'):
-    check(marker in host_workflow, f'host reference provenance/check missing: {marker}')
+               '12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50',
+               'reference_kind=SAME_HOST_PRECISION_BATCH_CONTROL',
+               'mrope_parity=UNQUALIFIED'):
+    check(marker in host_workflow, f'precision host workflow missing {marker}')
 host_source = read('verification/host/qwen_reference_sliced.cpp')
 for marker in ('llama_decode(', 'positions.resize(4 * n)', 'positions[axis*n + i]',
                'kTeacher = {11528,4128,102064,13806}', '"logits-step-00.f32le"'):
     check(marker in host_source, f'host reference numeric/position contract missing: {marker}')
 check('qwen_npu_llama_probe.cpp' not in host_source,
-      'Android decoder cannot be embedded in independent host runner')
-# The new host extended API path cannot accidentally become a self-comparison.
+      'Android decoder cannot be embedded in reference runner')
 mixed_host = read('verification/host/qwen_reference_mixed.cpp')
 for marker in ('llama_batch_ext_add_token(', 'llama_batch_ext_add_embd(',
-               'llama_batch_ext_set_pos(', 'llama_process(',
-               'kTeacher = {11528,4128,102064,13806}', 'position == 171', 'CHUNKED_PREFIX_FAILED', 'CHUNKED_AUDIO_FAILED', 'CHUNKED_SUFFIX_FAILED'):
-    check(marker in mixed_host, f'missing host mixed batching contract: {marker}')
-check('cut_after_prefix' in mixed_host and 'cut_after_audio' in mixed_host and 'llama_batch_ext_clear(batch.value)' in mixed_host, 'host boundary paths must clear input buffer without resetting KV state')
+               'llama_batch_ext_set_pos(', 'llama_process(', 'position == 171',
+               'kTeacher = {11528,4128,102064,13806}',
+               'ctx_params.n_ubatch = ubatch', 'ctx_params.n_threads_batch = threads',
+               'input_kind == "text-filler"', 'add_token(198)',
+               'CHUNKED_PREFIX_FAILED', 'CHUNKED_AUDIO_FAILED', 'CHUNKED_SUFFIX_FAILED'):
+    check(marker in mixed_host, f'host batching/precision control missing: {marker}')
 check('qwen_npu_llama_probe.cpp' not in mixed_host and
-      'native/qwen_bridge' not in mixed_host, 'host mixed reference cannot link Android probe')
+      'native/qwen_bridge' not in mixed_host,
+      'host mixed reference cannot link Android probe')
+check('cut_after_prefix' in mixed_host and 'cut_after_audio' in mixed_host and
+      'llama_batch_ext_clear(batch.value)' in mixed_host,
+      'host boundary paths must preserve KV while clearing input')
 cmake_host = read('verification/host/CMakeLists.txt')
-check('qwen_reference_mixed.cpp' in cmake_host and 'qwen_reference_sliced.cpp' in cmake_host,
-      'both reference bridge paths must link same upstream library')
-eval_host = read('scripts/evaluate-qwen-batch-paths.py')
-check('FAIL_MIXED_REPLAY' in eval_host and 'BATCH_PATH_IDENTICAL' in eval_host and
-      'INCONCLUSIVE' in eval_host and 'model_math_independent' in eval_host,
-      'host must distinguish parity, replay failure and unavailable data')
-check('scripts/test-qwen-batch-paths.py' in host_workflow and
-      'artifact/INPUT_KIND_REPORT.json' in host_workflow,
-      'CI must execute numeric comparison controls and export their report')
-
+check('qwen_reference_mixed.cpp' in cmake_host and
+      'qwen_reference_sliced.cpp' in cmake_host,
+      'host decoder reference targets absent')
+for p in ('scripts/evaluate-qwen-batch-paths.py',
+          'scripts/evaluate-qwen-chunk-isolation.py',
+          'scripts/evaluate-qwen-boundary-isolation.py',
+          'scripts/evaluate-qwen-execution-sensitivity.py',
+          'scripts/evaluate-qwen-microbatch-threshold.py',
+          'scripts/evaluate-qwen-input-kind-isolation.py'):
+    read(p)
 # Fail if unbuilt/private assets are accidentally shipped in the source tree.
 for name in ['decoder-q8.gguf', 'encoder-qnn-fp16.bin', 'golden-synthetic-pcm-12s-f32.raw']:
     check(not list(root.rglob(name)), f'PRIVATE/large model asset in source: {name}')
@@ -406,24 +415,30 @@ check(not list(root.rglob('*.jks')), 'keystore appears in source archive')
 check('FAIL_LOGIT_REPLAY' in verify_log and 'INCONCLUSIVE_LOGIT_CHECKPOINT' in verify_log, 'logit replay failure statuses missing')
 check('QwenLabLogitReplay.compareFiles' in worker and 'QwenLabLogitExport.save' in worker and '"--synthetic-logits", "fixture"' in worker, 'synthetic logits replay/export not connected')
 check('synthetic_logits' in cpp and 'qwen-prefill-logits-' in cpp, 'native synthetic logits export unavailable')
-check('CHUNK_GROUPING_SIMILAR_TO_SPLIT' in read('scripts/evaluate-qwen-chunk-isolation.py'), 'new three-path comparison evaluator absent')
-check('three-stage' in host_workflow and 'artifact/orig_three_stage_u128' in host_workflow and 'artifact/orig_unified_u256' in host_workflow and 'artifact/text_unified_u256' in host_workflow and 'artifact/zero_unified_u256' in host_workflow, 'input kind control paths absent')
-check('scripts/test-qwen-boundary-isolation.py' in host_workflow and 'evaluate-qwen-boundary-isolation.py' in host_workflow, 'new boundary evaluator and negative controls absent')
-check('scripts/test-qwen-chunk-isolation.py' in host_workflow and 'scripts/test-qwen-boundary-isolation.py' in host_workflow, 'prior chunk and boundary regression tests not in CI')
-check('ctx_params.n_ubatch = ubatch' in mixed_host and 'ctx_params.n_threads_batch = threads' in mixed_host and 'ub != "160"' in mixed_host, 'microbatch size/threads not wired to host inference')
-check('scripts/test-qwen-input-kind-isolation.py' in host_workflow and 'evaluate-qwen-input-kind-isolation.py' in host_workflow and 'INPUT_KIND_REPORT.json' in host_workflow, 'new input kind regression/report gates absent')
-check('UNIFIED_PROMPT_THRESHOLD_SENSITIVE' in read('scripts/evaluate-qwen-microbatch-threshold.py') and 'FAIL_REPLAY' in read('scripts/evaluate-qwen-microbatch-threshold.py'), 'threshold decision controls absent')
-# 6.6.14: ensure the host input-kind control is wired into inference and CI.
-check('input_kind == "zero"' in mixed_host and 'input_kind == "text-filler"' in mixed_host
-      and 'zero_audio.data()' in mixed_host and 'add_token(198)' in mixed_host,
-      'Input control must be implemented in actual host inference, not only in evaluator')
-check('scripts/test-qwen-input-kind-isolation.py' in host_workflow and
-      'evaluate-qwen-input-kind-isolation.py' in host_workflow and
-      'INPUT_KIND_REPORT.json' in host_workflow and
-      'reference_kind=HOST_SYNTHETIC_INPUT_KIND_CONTROL' in host_workflow,
-      '6.6.14 input kind test/CI provenance absent')
+check('CHUNK_GROUPING_SIMILAR_TO_SPLIT' in read('scripts/evaluate-qwen-chunk-isolation.py'),
+      'older three-path comparator missing')
+check('UNIFIED_PROMPT_THRESHOLD_SENSITIVE' in read('scripts/evaluate-qwen-microbatch-threshold.py'),
+      'older threshold control missing')
+precision = read('scripts/evaluate-qwen-precision-batch.py')
+precision_test = read('scripts/test-qwen-precision-batch.py')
+for marker in ('BF16_SHA256', 'Q8_SHA256', 'FAIL_REPLAY', 'INCONCLUSIVE_Q8_CONTROL',
+               'BOTH_PRECISIONS_BATCH_SENSITIVE', 'mean_microbatch_rmse_across_5_steps',
+               'model_math_independent'):
+    check(marker in precision, f'precision comparator missing {marker}')
+for marker in ('INCONCLUSIVE_INCOMPLETE', 'FAIL_REPLAY', 'real historical vector controls'):
+    check(marker in precision_test, f'precision regression test missing {marker}')
+check('qwen-6.6.15-host-precision-batch-' in host_workflow and
+      'artifact/PRECISION_BATCH_REPORT.json' in host_workflow and
+      'python3 scripts/test-qwen-precision-batch.py' in host_workflow,
+      'new host precision test/report/output not wired into CI')
+check('QWEN_REFERENCE_MODEL_Q8' in host_workflow and
+      'QWEN_REFERENCE_MODEL_BF16' in host_workflow and
+      'for precision in q8 bf16' in host_workflow and
+      'for kind in orig text' in host_workflow and
+      'for UBATCH in 128 256' in host_workflow,
+      'precision model/input/microbatch controls not executed')
 if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.14 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.15 source/workflow static gates (NOT an APK compile)')

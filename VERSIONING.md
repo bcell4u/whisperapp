@@ -1,3 +1,6 @@
+## v6.6.15 (versionCode 66015)
+Synthetic-only host precision control: Q8_0 and BF16 weights, 128 vs 256 microbatch, unified vs three-stage, original synthetic embeddings and 156 text filler tokens. Android normal inference unchanged; GH workflow does the real model run.
+
 ## v6.6.14 (versionCode 66014)
 Synthetic-only input modality control: original features, all-zero audio embeddings, and 156 ordinary text filler tokens. Compare unified/three-stage 128 vs 256 microbatches on pinned host Q8 model. Android transcription path unchanged.
 
