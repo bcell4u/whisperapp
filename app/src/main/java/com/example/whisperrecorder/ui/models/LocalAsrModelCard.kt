@@ -79,13 +79,23 @@ internal fun ModelCatalogCard(
                     onClick = onRemove
                 )
             }
-            if (downloading) {
-                DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                Text(
-                    modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            // Each download message belongs to its model, never the screen-level
+            // "Transcription models" introduction (notably the 805 MB Qwen GGUF).
+            if (modelDownload.modelId == details.id) {
+                if (downloading) {
+                    DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
+                    Text(
+                        modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (modelDownload.status.isNotBlank()) {
+                    Text(
+                        if (modelDownload.error != null) "Download failed: ${modelDownload.error}" else modelDownload.status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (modelDownload.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

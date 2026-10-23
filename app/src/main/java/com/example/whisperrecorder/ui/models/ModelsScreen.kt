@@ -57,6 +57,10 @@ internal fun ModelsScreen(
     var localPersistentIds by remember { mutableStateOf(emptySet<String>()) }
     var localRestoringId by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(status) {
+        if (status.isNotBlank()) snackbarHostState.showSnackbar(status)
+    }
     var deleteTarget by remember { mutableStateOf<File?>(null) }
     var removeLocalTarget by remember { mutableStateOf<LocalAsrModel?>(null) }
     var npuArchiveState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
@@ -106,10 +110,6 @@ internal fun ModelsScreen(
             refreshModels(restoreWhisper = false)
         }
     }
-    LaunchedEffect(modelDownload.status, modelDownload.error) {
-        if (modelDownload.status.isNotBlank()) status = modelDownload.status
-        modelDownload.error?.let { status = "Download failed: $it" }
-    }
     LaunchedEffect(Unit, modelDownload.modelId, modelDownload.active, modelDownload.completedPath, modelDownload.error) {
         if (modelDownload.modelId == NpuPackageStore.DOWNLOAD_ID && !modelDownload.active) {
             npuArchiveState = withContext(Dispatchers.IO) { NpuPackageStore.archiveState(context) }
@@ -154,7 +154,10 @@ internal fun ModelsScreen(
 
     accelerationNotice?.let { tier -> AccelerationNoticeDialog(tier) { accelerationNotice = null } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Models & downloads") }, navigationIcon = { BackArrowButton(onBack) }) }) { pad ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Models & downloads") }, navigationIcon = { BackArrowButton(onBack) }) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { pad ->
         LazyColumn(
             Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -166,7 +169,6 @@ internal fun ModelsScreen(
                         Text("Transcription models", style = MaterialTheme.typography.titleLarge)
                         Text("Select a transcription model. NPU models offer the best speed and battery efficiency. GPU models provide good speed but use more battery and generate more heat. CPU models are the slowest. Downloaded models are saved in Whisperapp/Models.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (transcriptionState.active) Text("A transcription is currently running. Model removal is temporarily disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                        if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -352,9 +354,17 @@ internal fun ModelsScreen(
                                 onClick = { deleteTarget = already }
                             )
                         }
-                        if (modelDownload.active && modelDownload.modelId == model.id) {
-                            DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
-                            Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (modelDownload.modelId == model.id) {
+                            if (modelDownload.active) {
+                                DownloadProgressBar(modelDownload.progress, Modifier.fillMaxWidth())
+                                Text(modelDownloadProgressText(modelDownload.bytesDownloaded, modelDownload.totalBytes, modelDownload.progress, modelDownload.status), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (modelDownload.status.isNotBlank()) {
+                                Text(
+                                    if (modelDownload.error != null) "Download failed: ${modelDownload.error}" else modelDownload.status,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (modelDownload.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

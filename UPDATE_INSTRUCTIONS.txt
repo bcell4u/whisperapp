@@ -1,11 +1,2 @@
-WhisperRecorder v6.7.2 incremental update from the 6.7.1 Omi-cleanup source.
-Unzip over the Git repository ROOT, retaining the directory structure.
-Then remove retired Git-tracked files listed in DELETED_FILES.txt, or run:
-  bash scripts/clean-retired-omi-diagnostics.sh
-  git status --short
-  git add -A
-  git commit -m "WhisperRecorder 6.7.2 orphaned test cleanup"
-  git push
-GitHub Actions will automatically build on push. Successful debug .dev APK
-builds publish to GitHub Releases as uniquely tagged prereleases.
-If build fails, the source package is not an installable APK.
+WhisperRecorder 6.7.5 changed files compared with the 6.7.4 MicrophoneLintFix FULL-SOURCE.zip.
+Unpack into the root of the existing Git checkout, preserving directories. Review DELETED_FILES.txt and git status; commit additions/modifications/deletions. Push to start the GitHub Actions build. Debug .dev APK prerelease publishing still requires passing Android lint and APK gates. This is not an installable APK.

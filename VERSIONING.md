@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.2
-versionName=6.7.2
-versionCode=67002
+releaseVersion=6.7.5
+versionName=6.7.5
+versionCode=67005
 ```
 
-This source targets v6.7.2. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.5. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -23,7 +23,7 @@ This source targets v6.7.2. Omi NPU remains separately selectable; its underlyin
 
 Keep Parakeet QNN NPU, Parakeet/Omi OpenCL GPU, Qwen3/Whisper CPU, and optional sherpa-onnx CPU speaker diarization operational. Preserve the QNN and sherpa-onnx native runtime isolation and diagnostic export. Do not silently replace a manually selected backend or migrate user-owned SAF files without a tested plan.
 
-In production, prefer NPU > GPU > CPU **only when choosing among installed models without a manual selection**. One-time GPU and CPU heat/battery notices are separate. Word-level playback and speaker attribution reuse existing NPU decoder word timings where available, and fall back safely otherwise.
+In production, prefer NPU > GPU > CPU **only when choosing among installed models without a manual selection**. Successfully downloading a specific model is an explicit choice and activates that model for the next transcription; do not activate cancelled or failed downloads. One-time GPU and CPU heat/battery notices are separate. Word-level playback and speaker attribution reuse existing NPU decoder word timings where available, and fall back safely otherwise.
 
 See [README.md](README.md), [NPU.md](NPU.md), and [SPEAKER_DIARIZATION.md](SPEAKER_DIARIZATION.md) for maintained user-facing and technical behavior.
 
@@ -128,3 +128,27 @@ test before JVM compilation. The Qwen source audit verifies the test is absent
 and that no main/test Kotlin, Java or AIDL source references the removed class.
 The Omi recognition backends and their production tests are unaffected.
 VersionName `6.7.2`, versionCode `67002`; APK and S26 verification pending.
+
+
+## v6.7.3 (lint visibility and fail-closed publishing)
+
+GitHub Actions run 39899122284 built and APK-audited a 6.7.2 debug APK, but
+Android lint returned 1. Its detailed output was saved to an artifact rather
+than printed in the run log, so its root cause is not yet known. CI now prints
+issue IDs/locations and a bounded Gradle failure excerpt, retains the full lint
+log/XML in the build artifact, then marks the BUILD job failed before release
+publishing. No lint checks are disabled or ignored. VersionName `6.7.3`,
+versionCode `67003`. Rebuild and inspect lint findings before claiming success.
+
+
+## v6.7.5 (microphone permission safety and Android lint remediation)
+
+GitHub run 108142028325 produced and APK-audited the 6.7.2 debug APK but
+Android lint returned 7 errors and 9 warnings. The user-provided Gradle log
+reveals only the first error: `MissingPermission` for the AudioRecord
+constructor in `MicrophoneCapabilityProbe.kt`. This revision adds explicit
+RECORD_AUDIO permission validation directly at the probe capture entry point,
+WAV recorder entry and constructor boundary, and compressed recording service.
+No lint checks were suppressed or disabled. The six other lint errors cannot
+be identified without the XML/full lint report. A new Android build/lint run
+and actual S26 playback smoke test remain mandatory. Version code `67005`.

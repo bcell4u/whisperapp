@@ -16,6 +16,16 @@ import java.util.concurrent.CancellationException
 internal class Qwen06Session(context: Context) : AsrSession {
     private val client = Qwen3HybridClient.connect(context.applicationContext)
     @Volatile private var cancelled = false
+    // UI-only progress callback: called after each real QNN window and at decoder handoff.
+    // Decoder token progress is not exposed, so the UI must not invent a percentage.
+    @Volatile var onWindowProgress: ((completed: Int, total: Int, phase: String) -> Unit)? = null
+
+    companion object {
+        internal fun estimatedWindowCount(sampleCount: Int): Int {
+            require(sampleCount > 0 && sampleCount <= 240 * 16_000)
+            return 1 + ((sampleCount - 192_000).coerceAtLeast(0) + 175_999) / 176_000
+        }
+    }
     override val nativeInfo = "Qwen3-ASR 0.6B · ORT-QNN/HTP encoder + llama.cpp Q8_0 ARM64 dotprod (4 threads)"
 
     override fun transcribe(samples: FloatArray, language: String, threads: Int): AsrRecognition {
@@ -26,6 +36,8 @@ internal class Qwen06Session(context: Context) : AsrSession {
         // Keeping 1s overlap reduces errors at 12s boundaries, with bounded stitching.
         val prepared = client.prepare(overlapSeconds = 1)
         require(prepared.optBoolean("ok")) { "Qwen QNN encoder preparation failed" }
+        val totalWindows = estimatedWindowCount(samples.size)
+        onWindowProgress?.invoke(0, totalWindows, "Encoding")
         var next = 0
         var count = 0
         while (next < samples.size) {
@@ -40,12 +52,14 @@ internal class Qwen06Session(context: Context) : AsrSession {
                 val result = client.encode(shared, sampleCount)
                 require(result.optBoolean("ok")) { "Qwen QNN encoder failed" }
                 count++
+                onWindowProgress?.invoke(count, totalWindows, "Encoding")
             }
             if (end == samples.size) break
             next += 176_000
         }
-        require(count in 1..24) { "Qwen window count outside safety bound" }
+        require(count in 1..24 && count == totalWindows) { "Qwen window count outside safety bound" }
         if (cancelled) throw CancellationException("Qwen transcription cancelled")
+        onWindowProgress?.invoke(count, totalWindows, "Decoding")
         val result: JSONObject = client.finish()
         require(result.optBoolean("ok")) { "Qwen llama.cpp decoding failed" }
         require(result.getInt("segments") == count && result.getInt("model_loads") == 1) {

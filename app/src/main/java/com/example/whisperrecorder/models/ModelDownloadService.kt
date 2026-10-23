@@ -10,6 +10,7 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.example.whisperrecorder.MainActivity
 import com.example.whisperrecorder.advanced.LocalAsrModelManager
+import com.example.whisperrecorder.qwen.QwenModelDownloader
 import com.example.whisperrecorder.R
 import com.example.whisperrecorder.diagnostics.DiagnosticLogger
 import com.example.whisperrecorder.npu.NpuPackageStore
@@ -165,6 +166,28 @@ class ModelDownloadService : Service() {
         return null
     }
 
+    /**
+     * Package-based NPU downloads are intentionally different from the existing
+     * single-file GGUF/Whisper downloaders: those managers already select on
+     * success, but package downloaders only install their files. Select the
+     * finished package here so a download completed in the foreground service
+     * takes effect even if Models & downloads is no longer open.
+     *
+     * No preference changes happen for cancelled, partial or failed downloads.
+     */
+    private fun selectInstalledPackage(target: DownloadTarget) {
+        when (target.id) {
+            NpuPackageStore.DOWNLOAD_ID -> NpuPackageStore.selectForTranscription(this)
+            OmiNpuPackageStore.DOWNLOAD_ID -> OmiNpuPackageStore.selectForTranscription(this)
+            "qwen3-asr-0.6b-q8" -> {
+                val model = requireNotNull(LocalAsrModelManager.byId(target.id))
+                // This checks BOTH the QNN encoder and GGUF decoder before use.
+                LocalAsrModelManager.select(this, model)
+            }
+            else -> Unit // LocalAsrModelManager.download and ModelManager.download already select.
+        }
+    }
+
     private fun startDownload(target: DownloadTarget) {
         cancelRequested = false
         ModelDownloadRuntime.starting(target.id, target.name)
@@ -198,6 +221,9 @@ class ModelDownloadService : Service() {
                     },
                     { cancelRequested }
                 )
+                if (cancelRequested) throw CancellationException("Model download cancelled")
+                // Complete installation and selection together before announcing success.
+                selectInstalledPackage(target)
                 if (cancelRequested) throw CancellationException("Model download cancelled")
                 ModelDownloadRuntime.completed(target.id, target.name, completedPath)
             } catch (_: CancellationException) {

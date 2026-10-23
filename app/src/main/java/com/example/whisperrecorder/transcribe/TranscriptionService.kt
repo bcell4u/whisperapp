@@ -376,7 +376,10 @@ class TranscriptionService : Service() {
                             TranscriptionState(
                                 recordingId = request.id, active = true, progress = progressBefore,
                                 processedMs = processedBefore, totalMs = total, chunk = chunk, totalChunks = totalChunks,
-                                modelName = modelName, stage = "Transcribing", detail = "Segment $chunk of $totalChunks",
+                                modelName = modelName, stage = "Transcribing",
+                                detail = if (session is Qwen06Session) "Preparing Qwen audio windows" else "Segment $chunk of $totalChunks",
+                                qwenWindowsTotal = if (session is Qwen06Session) Qwen06Session.estimatedWindowCount(samples.size) else 0,
+                                qwenPhase = if (session is Qwen06Session) "Encoding" else "",
                                 elapsedMs = System.currentTimeMillis() - sessionStarted, startedAtMs = sessionStarted
                             )
                         )
@@ -396,8 +399,33 @@ class TranscriptionService : Service() {
                         )
                         getSystemService(NotificationManager::class.java).notify(
                             NOTIFICATION_ID,
-                            workingNotification("Transcribing segment $chunk of $totalChunks", if (totalChunks > 1) progressBefore else null)
+                            workingNotification(
+                                if (session is Qwen06Session) "Qwen: preparing audio windows" else "Transcribing segment $chunk of $totalChunks",
+                                if (totalChunks > 1) progressBefore else null,
+                                indeterminate = session is Qwen06Session
+                            )
                         )
+                        if (session is Qwen06Session) {
+                            session.onWindowProgress = { completed, windowTotal, phase ->
+                                val current = TranscriptionRuntime.state.value
+                                if (current.active && current.recordingId == request.id && current.chunk == chunk) {
+                                    val message = if (phase == "Decoding") {
+                                        "Qwen: decoding $windowTotal audio windows"
+                                    } else {
+                                        "Qwen: encoded $completed of $windowTotal audio windows"
+                                    }
+                                    TranscriptionRuntime.update(
+                                        current.copy(
+                                            qwenWindowsDone = completed, qwenWindowsTotal = windowTotal,
+                                            qwenPhase = phase, detail = message
+                                        )
+                                    )
+                                    getSystemService(NotificationManager::class.java).notify(
+                                        NOTIFICATION_ID, workingNotification(message, null, indeterminate = true)
+                                    )
+                                }
+                            }
+                        }
 
                         val heartbeat = launch {
                             var lastLoggedSecond = 0L
@@ -409,12 +437,20 @@ class TranscriptionService : Service() {
                                 val current = TranscriptionRuntime.state.value
                                 if (current.recordingId == request.id && current.active) {
                                     val slowNote = if (seconds >= 60) " • still processing" else ""
-                                    val detail = "Segment $chunk of $totalChunks • ${seconds}s total • ${chunkElapsed / 1000L}s this segment$slowNote"
+                                    val detail = if (current.qwenWindowsTotal > 0) {
+                                        current.detail.substringBefore(" • elapsed") + " • elapsed ${seconds}s$slowNote"
+                                    } else {
+                                        "Segment $chunk of $totalChunks • ${seconds}s total • ${chunkElapsed / 1000L}s this segment$slowNote"
+                                    }
                                     TranscriptionRuntime.update(current.copy(stage = "Transcribing", detail = detail, elapsedMs = elapsed, startedAtMs = sessionStarted))
                                     if (seconds % 5L == 0L) {
                                         getSystemService(NotificationManager::class.java).notify(
                                             NOTIFICATION_ID,
-                                            workingNotification("Transcribing • ${seconds}s elapsed$slowNote", null)
+                                            workingNotification(
+                                                if (current.qwenWindowsTotal > 0) current.detail else "Transcribing • ${seconds}s elapsed$slowNote",
+                                                null,
+                                                indeterminate = current.qwenWindowsTotal > 0
+                                            )
                                         )
                                     }
                                 }
@@ -449,6 +485,7 @@ class TranscriptionService : Service() {
                                 )
                             }
                         } finally {
+                            if (session is Qwen06Session) session.onWindowProgress = null
                             runCatching { preparedForChunk?.close() }
                             heartbeat.cancel()
                         }
@@ -806,7 +843,7 @@ class TranscriptionService : Service() {
         )
     }
 
-    private fun workingNotification(text: String, progress: Int?, showStopAction: Boolean = true): Notification {
+    private fun workingNotification(text: String, progress: Int?, showStopAction: Boolean = true, indeterminate: Boolean = false): Notification {
         val open = openAppPendingIntent()
         val cancel = PendingIntent.getService(
             this,
@@ -824,7 +861,8 @@ class TranscriptionService : Service() {
         if (showStopAction) builder.addAction(0, "Stop", cancel)
         // Only show a progress bar when we have a real, determinate percentage (multi-chunk audio).
         // A single whisper_full() call does not expose trustworthy percentage progress.
-        if (progress != null) builder.setProgress(100, progress.coerceIn(0, 99), false)
+        if (indeterminate) builder.setProgress(0, 0, true)
+        else if (progress != null) builder.setProgress(100, progress.coerceIn(0, 99), false)
         return builder.build()
     }
 

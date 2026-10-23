@@ -1,5 +1,4 @@
 package com.example.whisperrecorder
-
 import android.Manifest
 import android.content.Intent
 import android.content.ClipData
@@ -96,45 +95,37 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.util.UUID
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_RECORDING_ID = "open_recording_id"
     }
-
     private val requestedRecordingId = mutableStateOf<String?>(null)
     private val maintenanceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var maintenanceJob: kotlinx.coroutines.Job? = null
     private val libraryIntegrityRevision = mutableIntStateOf(0)
     private var recordScreenVisible = false
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedRecordingId.value = intent?.getStringExtra(EXTRA_OPEN_RECORDING_ID)
         setContent { WhisperRecorderTheme { App() } }
     }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         requestedRecordingId.value = intent.getStringExtra(EXTRA_OPEN_RECORDING_ID)
     }
-
     override fun onStart() {
         super.onStart()
         if (recordScreenVisible && RecordingRuntime.state.value.active) setRecordingVisualizerEnabled(true)
     }
-
     override fun onStop() {
         if (RecordingRuntime.state.value.active) setRecordingVisualizerEnabled(false)
         super.onStop()
     }
-
     private fun setRecordingVisualizerEnabled(enabled: Boolean) {
         RecordingRuntime.setVisualizerVisible(enabled && RecordingRuntime.state.value.active)
     }
-
     override fun onResume() {
         super.onResume()
         maintenanceJob?.cancel()
@@ -147,12 +138,10 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.Main) { libraryIntegrityRevision.intValue++ }
         }
     }
-
     override fun onDestroy() {
         maintenanceScope.cancel()
         super.onDestroy()
     }
-
     @Composable
     private fun App() {
         var setupComplete by rememberSaveable { mutableStateOf(AppPrefs.isSetupComplete(this)) }
@@ -167,7 +156,6 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
-
         var tab by rememberSaveable { mutableIntStateOf(0) }
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -180,7 +168,6 @@ class MainActivity : ComponentActivity() {
         val modelDownloadActive by modelDownloadActiveFlow.collectAsState(initial = ModelDownloadRuntime.state.value.active)
         val backgroundWorkActive = recordingActive || transcriptionActive || modelDownloadActive
         val requestedId = requestedRecordingId.value
-
         LaunchedEffect(requestedId) {
             if (requestedId != null) {
                 selectedRecordingId = requestedId
@@ -188,7 +175,6 @@ class MainActivity : ComponentActivity() {
                 requestedRecordingId.value = null
             }
         }
-
         BackHandler(enabled = showSettings) { showSettings = false }
         BackHandler(enabled = selectedRecordingId != null && !showSettings) { selectedRecordingId = null }
         BackHandler(enabled = !showSettings && selectedRecordingId == null) {
@@ -200,7 +186,6 @@ class MainActivity : ComponentActivity() {
                 finishAndRemoveTask()
             }
         }
-
         if (showExitDialog) {
             AlertDialog(
                 onDismissRequest = { showExitDialog = false },
@@ -622,11 +607,15 @@ class MainActivity : ComponentActivity() {
                             tx.active && tx.recordingId == item.id -> {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(tx.stage.ifBlank { "Working" }, modifier = Modifier.weight(1f))
-                                    if (tx.totalChunks > 1 && tx.chunk > 0) {
+                                    if (tx.qwenWindowsTotal > 0) {
+                                        Text("${tx.qwenWindowsDone}/${tx.qwenWindowsTotal} windows", style = MaterialTheme.typography.bodySmall)
+                                    } else if (tx.totalChunks > 1 && tx.chunk > 0) {
                                         Text("${tx.chunk}/${tx.totalChunks}", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                                if (tx.totalChunks > 1 && tx.progress in 1..99) {
+                                if (tx.stage == "Transcribing" && tx.qwenWindowsTotal > 0) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                } else if (tx.totalChunks > 1 && tx.progress in 1..99) {
                                     CompactProgressBar(tx.progress / 100f, Modifier.fillMaxWidth())
                                 }
                                 val verboseStatus = verboseDiagnostics && tx.detail.isNotBlank()
@@ -638,7 +627,12 @@ class MainActivity : ComponentActivity() {
                                     )
                                 } else {
                                     val elapsedLabel = if (tx.elapsedMs > 0L) "Elapsed ${formatElapsed(tx.elapsedMs)}" else "Starting…"
-                                    val segmentLabel = if (tx.totalChunks > 1 && tx.chunk > 0) "Segment ${tx.chunk} of ${tx.totalChunks} • $elapsedLabel" else elapsedLabel
+                                    val segmentLabel = when {
+                                        tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoding ${tx.qwenWindowsTotal} Qwen windows • $elapsedLabel"
+                                        tx.qwenWindowsTotal > 0 -> "Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen windows • $elapsedLabel"
+                                        tx.totalChunks > 1 && tx.chunk > 0 -> "Segment ${tx.chunk} of ${tx.totalChunks} • $elapsedLabel"
+                                        else -> elapsedLabel
+                                    }
                                     Text(
                                         segmentLabel,
                                         style = MaterialTheme.typography.bodySmall,
@@ -1055,13 +1049,20 @@ class MainActivity : ComponentActivity() {
                         when {
                             tx.active && tx.recordingId == current.id -> {
                                 Text(tx.stage.ifBlank { "Transcribing" }, fontWeight = FontWeight.SemiBold)
-                                val determinate = tx.totalChunks > 1 && tx.progress in 1..99
-                                if (determinate) {
+                                val determinate = tx.qwenWindowsTotal == 0 && tx.totalChunks > 1 && tx.progress in 1..99
+                                if (tx.stage == "Transcribing" && tx.qwenWindowsTotal > 0) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                } else if (determinate) {
                                     CompactProgressBar(tx.progress / 100f, Modifier.fillMaxWidth())
                                 }
                                 if (tx.stage == "Transcribing" && tx.totalChunks > 0) {
                                     Text(
-                                        if (tx.totalChunks == 1) "Segment 1 of 1" else "Processing ${formatElapsed(tx.processedMs)} of ${formatElapsed(tx.totalMs)} • Segment ${tx.chunk} of ${tx.totalChunks}",
+                                        when {
+                                            tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoding ${tx.qwenWindowsTotal} Qwen audio windows"
+                                            tx.qwenWindowsTotal > 0 -> "Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen audio windows"
+                                            tx.totalChunks == 1 -> "Segment 1 of 1"
+                                            else -> "Processing ${formatElapsed(tx.processedMs)} of ${formatElapsed(tx.totalMs)} • Segment ${tx.chunk} of ${tx.totalChunks}"
+                                        },
                                         style = MaterialTheme.typography.bodySmall
                                     )
                                 } else if (tx.detail.isNotBlank()) {

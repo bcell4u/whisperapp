@@ -17,7 +17,7 @@ release candidate. Successful debug builds automatically publish a GitHub **prer
 
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.2**, Android `versionCode=67002`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.5**, Android `versionCode=67005`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -32,7 +32,7 @@ The app maintains these independent offline recognition backends:
 | Qwen3-ASR 0.6B | QNN/HTP encoder + llama.cpp Q8_0 dotprod decoder | NPU + CPU |
 | Whisper | whisper.cpp | CPU |
 
-For a first-time user without a manual engine preference, the app prefers a verified, installed NPU model, then an installed GPU model, then an installed CPU model. **Manual engine selections are never overridden.** This is model selection, not automatic cross-backend failover during inference. The GPU and CPU tiers each show a separate, persistent one-time in-app warning about processing temperature and battery use. No additional Automatic selection item is exposed in the model picker.
+For a first-time user without a manual engine preference, the app prefers a verified, installed NPU model, then an installed GPU model, then an installed CPU model. **Manually selecting or downloading a different model explicitly changes the selected engine.** This is model selection, not automatic cross-backend failover during inference. The GPU and CPU tiers each show a separate, persistent one-time in-app warning about processing temperature and battery use. No additional Automatic selection item is exposed in the model picker.
 
 Qwen 0.6B returns no native word timestamps: its transcript playback uses estimated three-word cues anchored to each 12-second decoded window, not to a whole 240-second slice. Retranscribe older recordings to regenerate these cues; the manual highlight offset remains available.
 
@@ -52,7 +52,7 @@ For the full technical details and caveats, see [NPU.md](NPU.md) and [SPEAKER_DI
 
 The complete source tree includes `.github/workflows/build.yml`, the Android Gradle modules, native modules, version metadata, and validation scripts. The workflow provisions the Android SDK/NDK, obtains and verifies pinned native dependencies, runs JVM tests, assembles an APK, audits it, and uses the configured permanent signing key for a signed production build. Review [SIGNING.md](SIGNING.md) and [VERSIONING.md](VERSIONING.md) before publishing.
 
-GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.2-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.2` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
+GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.5-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.5` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
 
 Before building, run `bash scripts/verify-source.sh` if a local shell is available. The official Android build runs in GitHub Actions; passing static source checks alone is **not** proof of compilation or device operation.
 

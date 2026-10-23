@@ -18,8 +18,39 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.2 / 67002': version == {'releaseVersion':'6.7.2','versionName':'6.7.2','versionCode':'67002'},
+    'version 6.7.5 / 67005': version == {'releaseVersion':'6.7.5','versionName':'6.7.5','versionCode':'67005'},
+    'microphone probe checks RECORD_AUDIO at AudioRecord constructor boundary': all(s in read('app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt') for s in (
+        'checkPcm(context, source, noiseSuppressor, aec)',
+        'private fun checkPcm(context: Context',
+        'context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)',
+        'throw SecurityException("Microphone permission is required for a WAV input check")')),
+    'recording paths recheck RECORD_AUDIO before opening microphone': all(s in read('app/src/main/java/com/example/whisperrecorder/audio/WavPcmRecorder.kt') for s in (
+        'private val context: Context', 'private fun createRecorder(source: Int, bufferSize: Int)',
+        'context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)')) and all(s in read('app/src/main/java/com/example/whisperrecorder/audio/RecordingService.kt') for s in (
+        'WavPcmRecorder(this, requireNotNull(tempFile), processingConfig)',
+        'checkSelfPermission(Manifest.permission.RECORD_AUDIO)',
+        'private fun createCompressedRecorder(audioSource: Int): MediaRecorder')),
+    'download status is shown in its own model card':
+        'if (status.isNotBlank()) Text(status' not in read('app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.kt')
+        and 'modelDownload.status.isNotBlank()' in read('app/src/main/java/com/example/whisperrecorder/ui/models/LocalAsrModelCard.kt')
+        and 'modelDownload.modelId == details.id' in read('app/src/main/java/com/example/whisperrecorder/ui/models/LocalAsrModelCard.kt')
+        and 'modelDownload.status.isNotBlank()' in read('app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.kt')
+        and 'snackbarHost = { SnackbarHost(snackbarHostState) }' in read('app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.kt'),
+    'verified package downloads auto-select before marking completed':
+        all(x in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt') for x in (
+            'private fun selectInstalledPackage(target: DownloadTarget)',
+            'NpuPackageStore.DOWNLOAD_ID -> NpuPackageStore.selectForTranscription(this)',
+            'OmiNpuPackageStore.DOWNLOAD_ID -> OmiNpuPackageStore.selectForTranscription(this)',
+            'LocalAsrModelManager.select(this, model)',
+            'selectInstalledPackage(target)',
+        ))
+        and 'select(context, model)' in read('app/src/main/java/com/example/whisperrecorder/advanced/LocalAsrModelManager.kt')
+        and 'AppPrefs.setTranscriptionEngine(context, "whisper")' in read('app/src/main/java/com/example/whisperrecorder/models/ModelManager.kt'),
     'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish tested APK to GitHub Releases' in wf,
+    'lint failures yield visible issue summaries and a failed build job': all(m in wf for m in (
+        'scripts/summarize-android-lint.py', 'Enforce Android lint release gate',
+        'android-lint-build.log', 'exit 1', 'Lint failed; will not publish'))
+        and wf.index('Upload installable APK and build proof') < wf.index('Enforce Android lint release gate') < wf.index('  publish:'),
     'published debug builds are clearly prereleases': all(m in wf for m in (
         'gh release create', '--prerelease', 'needs: build', 'contents: write',
         'android_lint_exit=0', 'sha256sum --check --status')),
@@ -73,6 +104,17 @@ checks = {
     'model removed with own QNN encoder': 'encoderDir.deleteRecursively()' in models,
     'model assets downloaded only on request': 'downloadMissing(' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'exact S26 qualifier displayed': 'SM-S942U only' in models,
+    'Qwen window progress uses encoder completions and indeterminate decoding':
+        all(marker in read('app/src/main/java/com/example/whisperrecorder/transcribe/Qwen06Session.kt') for marker in (
+            'estimatedWindowCount', 'onWindowProgress?.invoke(count, totalWindows, "Encoding")',
+            'onWindowProgress?.invoke(count, totalWindows, "Decoding")'))
+        and all(marker in read('app/src/main/java/com/example/whisperrecorder/transcribe/TranscriptionService.kt') for marker in (
+            'session.onWindowProgress', 'indeterminate = current.qwenWindowsTotal > 0',
+            'if (indeterminate) builder.setProgress(0, 0, true)'))
+        and 'assertEquals(22, Qwen06Session.estimatedWindowCount(240 * 16_000))' in read('app/src/test/java/com/example/whisperrecorder/transcribe/QwenWindowProgressTest.kt')
+        and all(marker in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt') for marker in (
+            'tx.qwenWindowsTotal > 0', 'Decoding ${tx.qwenWindowsTotal} Qwen audio windows',
+            'Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen audio windows')),
     'Qwen explicit choice does not change automatic selection': 'AsrEngine.QWEN06' not in read('app/src/main/java/com/example/whisperrecorder/transcribe/AccelerationPolicy.kt').split('fun preferredAvailable')[1],
     'QNN backup recovery is fail-closed': all(token in read('app/src/main/java/com/example/whisperrecorder/qwen/QwenEncoderAssets.kt') for token in ('recoverInterruptedInstall(folder, backup)', 'verify(backup)', 'backup.renameTo(folder)')),
     'cancel before native decode': 'private fun finish(): JSONObject {\n        check(!cancelRequested)' in worker,
