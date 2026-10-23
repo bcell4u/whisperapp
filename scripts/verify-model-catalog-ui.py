@@ -14,6 +14,12 @@ transcript = (base / 'ui/TranscriptLazyContent.kt').read_text()
 version = dict(line.split('=', 1) for line in (root / 'version.properties').read_text().splitlines() if '=' in line)
 
 checks = {
+    'first-run Qwen status stays within model card':
+        'LaunchedEffect(modelDownload.status, modelDownload.error)' not in setup
+        and 'if (status.isNotBlank()) Text(status' not in setup
+        and 'if (workspaceStatus.isNotBlank())' in setup
+        and 'modelDownload = modelDownload' in setup
+        and 'modelDownload.modelId == details.id' in card,
     'one shared model card': card.count('Card(Modifier.fillMaxWidth())') == 1
         and 'ModelCatalogCard(' in card and 'ModelCatalogCard(' in models,
     'two NPU cards share GPU card layout': models.count('ModelCatalogCard(') == 2

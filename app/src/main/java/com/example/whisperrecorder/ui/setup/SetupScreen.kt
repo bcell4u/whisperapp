@@ -62,7 +62,14 @@ internal fun SetupScreen(
     var localPersistentIds by remember { mutableStateOf(emptySet<String>()) }
     var localRestoringId by remember { mutableStateOf<String?>(null) }
     val modelDownload by ModelDownloadRuntime.state.collectAsState()
-    var status by rememberSaveable { mutableStateOf("") }
+    // Workspace feedback belongs under the folder picker; model-download feedback
+    // is rendered only by the card for the matching modelDownload.modelId.
+    var workspaceStatus by remember { mutableStateOf("") }
+    var selectionMessage by remember { mutableStateOf("") }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(selectionMessage) {
+        if (selectionMessage.isNotBlank()) snackbarHostState.showSnackbar(selectionMessage)
+    }
     var npuState by remember { mutableStateOf(NpuArchiveState.NOT_INSTALLED) }
     var npuChecking by remember { mutableStateOf(false) }
 
@@ -75,14 +82,14 @@ internal fun SetupScreen(
                 )
             }
             scope.launch {
-                status = "Preparing Whisperapp folders…"
+                workspaceStatus = "Preparing Whisperapp folders…"
                 val result = withContext(Dispatchers.IO) { runCatching { WorkspaceStorage.ensure(context, uri) } }
                 result.onSuccess {
                     AppPrefs.setSaveTree(context, uri)
                     treeUri = uri
-                    status = "Working directory ready"
+                    workspaceStatus = "Working directory ready"
                 }.onFailure {
-                    status = "Could not create Whisperapp folders: ${it.message}"
+                    workspaceStatus = "Could not create Whisperapp folders: ${it.message}"
                 }
             }
         }
@@ -101,7 +108,7 @@ internal fun SetupScreen(
         if (localRestoringId != null || npuChecking || (!isInstalled && !isPersistent)) return
         scope.launch {
             localRestoringId = model.id
-            if (!isInstalled) status = "Restoring ${model.name} from Whisperapp/Models…"
+            if (!isInstalled) selectionMessage = "Restoring ${model.name} from Whisperapp/Models…"
             try {
                 val path = withContext(Dispatchers.IO) {
                     if (isInstalled) LocalAsrModelManager.select(context, model)
@@ -111,9 +118,9 @@ internal fun SetupScreen(
                 if (!isInstalled) localInstalledIds = localInstalledIds + model.id
                 selectedEngine = model.engine.id
                 selectedModelPath = path
-                status = "${model.name} ready"
+                selectionMessage = "${model.name} ready"
             } catch (t: Exception) {
-                status = "Could not use ${model.name}: ${t.message ?: t.javaClass.simpleName}"
+                selectionMessage = "Could not use ${model.name}: ${t.message ?: t.javaClass.simpleName}"
             } finally {
                 localRestoringId = null
             }
@@ -121,10 +128,10 @@ internal fun SetupScreen(
     }
 
     LaunchedEffect(treeUri) {
-        if (treeUri != null) status = "Checking saved Whisperapp/Models folder…"
+        if (treeUri != null) workspaceStatus = "Checking saved Whisperapp/Models folder…"
         refreshInventory(restoreWhisper = treeUri != null)
         if (treeUri != null) {
-            status = if (installed.isNotEmpty() || localInstalledIds.isNotEmpty() || localPersistentIds.isNotEmpty()) "Saved models are available" else ""
+            workspaceStatus = if (installed.isNotEmpty() || localInstalledIds.isNotEmpty() || localPersistentIds.isNotEmpty()) "Saved models are available" else ""
         }
     }
 
@@ -140,14 +147,13 @@ internal fun SetupScreen(
             npuState = NpuArchiveState.NOT_INSTALLED
         }
     }
-    LaunchedEffect(modelDownload.status, modelDownload.error) {
-        if (modelDownload.status.isNotBlank()) status = modelDownload.status
-        modelDownload.error?.let { status = "Download failed: $it" }
-    }
 
     accelerationNotice?.let { tier -> AccelerationNoticeDialog(tier) { accelerationNotice = null } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Set up Whisper Recorder") }) }) { pad ->
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Set up Whisper Recorder") }) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { pad ->
         LazyColumn(
             Modifier.padding(pad).fillMaxSize().padding(horizontal = 18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -159,11 +165,16 @@ internal fun SetupScreen(
             }
             item { SectionLabel("1  WORKING DIRECTORY") }
             item {
-                SettingCard(
-                    "Working directory",
-                    treeUri?.let { "${it.lastPathSegment ?: "Selected folder"}/Whisperapp" } ?: "Choose where Whisperapp stores its files",
-                    if (treeUri == null) "Choose" else "Change"
-                ) { treePicker.launch(treeUri) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SettingCard(
+                        "Working directory",
+                        treeUri?.let { "${it.lastPathSegment ?: "Selected folder"}/Whisperapp" } ?: "Choose where Whisperapp stores its files",
+                        if (treeUri == null) "Choose" else "Change"
+                    ) { treePicker.launch(treeUri) }
+                    if (workspaceStatus.isNotBlank()) {
+                        Text(workspaceStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
             item { SectionLabel("2  AUDIO FORMAT") }
             item { AudioFormatCard(selected = format, onSelected = { format = it; AppPrefs.setAudioFormat(context, it) }) }
@@ -173,7 +184,6 @@ internal fun SetupScreen(
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Choose a transcription model", style = MaterialTheme.typography.titleMedium)
                         Text("Select a transcription model. NPU models offer the best speed and battery efficiency. GPU models provide good speed but use more battery and generate more heat. CPU models are the slowest. Downloaded models are saved in Whisperapp/Models.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -229,9 +239,9 @@ internal fun SetupScreen(
                                                 withContext(Dispatchers.IO) { NpuPackageStore.selectForTranscription(context) }
                                                 selectedEngine = "parakeet_npu"
                                                 selectedModelPath = NpuPackageStore.TRANSCRIPTION_MODEL_KEY
-                                                status = "Qualcomm NPU model selected"
+                                                selectionMessage = "Qualcomm NPU model selected"
                                             } catch (t: Throwable) {
-                                                status = "Cannot select NPU on this device: ${t.message ?: t.javaClass.simpleName}"
+                                                selectionMessage = "Cannot select NPU on this device: ${t.message ?: t.javaClass.simpleName}"
                                             } finally { npuChecking = false }
                                         }
                                     },

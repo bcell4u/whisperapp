@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.8
-versionName=6.7.8
-versionCode=67008
+releaseVersion=6.7.9
+versionName=6.7.9
+versionCode=67009
 ```
 
-This source targets v6.7.8. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.9. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -172,7 +172,7 @@ in a *cumulative repair overlay*, makes the audit identify relevant paths,
 and retains strict permission/lint enforcement. Version code `67006`.
 CI compilation/lint and S26 phone tests for 6.7.6 are not yet verified.
 
-## v6.7.8 (Android lint errors from run 108367174862)
+## v6.7.7 (Android lint errors from run 108367174862)
 
 Fixes the five verified Android lint errors without suppressing checks: four Compose
 `StateFlowValueCalledInComposition` errors in `MainActivity` and one
@@ -180,3 +180,18 @@ Fixes the five verified Android lint errors without suppressing checks: four Com
 automatic prerelease publication. Nine lower-severity lint warnings are documented
 for later review; this revision does not alter model runtimes or target SDK.
 `versionCode=67007`. CI and S26 testing remain pending.
+
+## v6.7.8 (measured Qwen transcription progress)
+
+The Qwen QNN encoder and llama.cpp decoder report completed audio-window work
+units, replacing a repeating indeterminate progress animation with a
+count-based two-stage progress bar. `versionCode=67008`.
+
+## v6.7.9 (setup download status placement)
+
+The first-run setup model-selection introduction no longer repeats active
+model-download messages. Qwen3-ASR progress and completion/failure reports
+stay in the matching Hybrid (CPU/NPU) model card. Folder setup messages appear
+under the folder picker; transient model-selection messages use a snackbar.
+The transcription backend, speaker pipeline, and downloaded model files remain
+unchanged. `versionCode=67009`. Android CI and device QA remain pending.

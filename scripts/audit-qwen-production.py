@@ -18,7 +18,7 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.8 / 67008': version == {'releaseVersion':'6.7.8','versionName':'6.7.8','versionCode':'67008'},
+    'version 6.7.9 / 67009': version == {'releaseVersion':'6.7.9','versionName':'6.7.9','versionCode':'67009'},
     'Compose observes runtime StateFlows without .value initializers': (
         'val recordingStatus by RecordingRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
         and 'val transcriptionStatus by TranscriptionRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
@@ -40,6 +40,13 @@ checks = {
         'WavPcmRecorder(this, requireNotNull(tempFile), processingConfig)',
         'checkSelfPermission(Manifest.permission.RECORD_AUDIO)',
         'private fun createCompressedRecorder(audioSource: Int): MediaRecorder')),
+    'first-run setup never mirrors download status in introduction': (
+        'LaunchedEffect(modelDownload.status, modelDownload.error)' not in read('app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt')
+        and 'if (status.isNotBlank()) Text(status' not in read('app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt')
+        and 'if (workspaceStatus.isNotBlank())' in read('app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt')
+        and 'snackbarHost = { SnackbarHost(snackbarHostState) }' in read('app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt')
+        and 'modelDownload = modelDownload' in read('app/src/main/java/com/example/whisperrecorder/ui/setup/SetupScreen.kt')
+    ),
     'download status is shown in its own model card':
         'if (status.isNotBlank()) Text(status' not in read('app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.kt')
         and 'modelDownload.status.isNotBlank()' in read('app/src/main/java/com/example/whisperrecorder/ui/models/LocalAsrModelCard.kt')
