@@ -1,0 +1,5 @@
+WhisperRecorder 6.7.8 incremental overlay against complete 6.7.7 source.
+Unzip into the root of your GitHub repository, preserving app/, scripts/, and .github/.
+Delete tracked paths listed in DELETED_FILES.txt (if any).
+Commit and push all additions/modifications/deletions. The workflow automatically builds a debug .dev APK and publishes it to Releases only if lint and all gates pass.
+If your repository has skipped intermediate versions, prefer the full-source ZIP (sync tracked files/deletions) or repair missing prerequisites first.

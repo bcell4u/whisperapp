@@ -2,6 +2,7 @@ package com.example.whisperrecorder.transcribe
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 data class TranscriptionState(
     val recordingId: String? = null,
@@ -13,6 +14,7 @@ data class TranscriptionState(
     val totalChunks: Int = 0,
     val qwenWindowsDone: Int = 0,
     val qwenWindowsTotal: Int = 0,
+    val qwenDecoderDone: Int = 0,
     val qwenPhase: String = "",
     val modelName: String = "",
     val stage: String = "",
@@ -27,4 +29,5 @@ object TranscriptionRuntime {
     private val _state = MutableStateFlow(TranscriptionState())
     val state: StateFlow<TranscriptionState> = _state
     fun update(state: TranscriptionState) { _state.value = state }
+    fun modify(block: (TranscriptionState) -> TranscriptionState) { _state.update(block) }
 }

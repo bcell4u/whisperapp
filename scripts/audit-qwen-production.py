@@ -18,7 +18,7 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.7 / 67007': version == {'releaseVersion':'6.7.7','versionName':'6.7.7','versionCode':'67007'},
+    'version 6.7.8 / 67008': version == {'releaseVersion':'6.7.8','versionName':'6.7.8','versionCode':'67008'},
     'Compose observes runtime StateFlows without .value initializers': (
         'val recordingStatus by RecordingRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
         and 'val transcriptionStatus by TranscriptionRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
@@ -114,20 +114,28 @@ checks = {
     'model removed with own QNN encoder': 'encoderDir.deleteRecursively()' in models,
     'model assets downloaded only on request': 'downloadMissing(' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'exact S26 qualifier displayed': 'SM-S942U only' in models,
-    'Qwen window progress uses encoder completions and indeterminate decoding':
+    'Qwen progress is counted per real encoder and decoder window':
         all(marker in read('app/src/main/java/com/example/whisperrecorder/transcribe/Qwen06Session.kt') for marker in (
             'estimatedWindowCount', 'onWindowProgress?.invoke(count, totalWindows, "Encoding")',
-            'onWindowProgress?.invoke(count, totalWindows, "Decoding")'))
+            'onWindowProgress?.invoke(0, totalWindows, "Decoding")',
+            'client.finish { completed, total ->'))
         and all(marker in read('app/src/main/java/com/example/whisperrecorder/transcribe/TranscriptionService.kt') for marker in (
-            'session.onWindowProgress', 'indeterminate = current.qwenWindowsTotal > 0',
-            'if (indeterminate) builder.setProgress(0, 0, true)'))
+            'session.onWindowProgress', 'QwenWorkProgress.percent(',
+            'qwenDecoderDone = decoded'))
         and 'assertEquals(22, Qwen06Session.estimatedWindowCount(240 * 16_000))' in read('app/src/test/java/com/example/whisperrecorder/transcribe/QwenWindowProgressTest.kt')
         and all(marker in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt') for marker in (
-            'tx.qwenWindowsTotal > 0', 'Decoding ${tx.qwenWindowsTotal} Qwen audio windows',
-            'Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen audio windows')),
+            'tx.qwenWindowsTotal > 0', 'Decoded ${tx.qwenDecoderDone} of ${tx.qwenWindowsTotal} Qwen audio windows',
+            'Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen audio windows'))
+        and 'QwenWorkProgress.fraction(' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
+        and all(token in read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWorkerService.kt') for token in (
+            'callback?.onWindowDecoded(decodedIndices.size, segments)', 'decodedIndices.add(index)'))
+        and 'oneway interface IQwen3ProgressCallback' in read('app/src/main/aidl/com/example/whisperrecorder/qwen/IQwen3ProgressCallback.aidl')
+        and 'String finish(IQwen3ProgressCallback callback);' in read('app/src/main/aidl/com/example/whisperrecorder/qwen/IQwen3HybridService.aidl')
+        and 'QwenWorkProgress.fraction(' in read('app/src/test/java/com/example/whisperrecorder/transcribe/QwenWorkProgressTest.kt')
+        and 'QwenWorkProgress.percent(' in read('app/src/main/java/com/example/whisperrecorder/transcribe/TranscriptionService.kt'),
     'Qwen explicit choice does not change automatic selection': 'AsrEngine.QWEN06' not in read('app/src/main/java/com/example/whisperrecorder/transcribe/AccelerationPolicy.kt').split('fun preferredAvailable')[1],
     'QNN backup recovery is fail-closed': all(token in read('app/src/main/java/com/example/whisperrecorder/qwen/QwenEncoderAssets.kt') for token in ('recoverInterruptedInstall(folder, backup)', 'verify(backup)', 'backup.renameTo(folder)')),
-    'cancel before native decode': 'private fun finish(): JSONObject {\n        check(!cancelRequested)' in worker,
+    'cancel before native decode': 'private fun finish(callback: IQwen3ProgressCallback?): JSONObject {\n        check(!cancelRequested)' in worker,
     'QNN progress never decreases': 'highestCompletedBytes = maxOf(highestCompletedBytes, estimate)' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'retired diagnostics cleaned before source validation': all(t in wf for t in (
         'Clean retired Omi diagnostic leftovers', 'Verify source', 'scripts/clean-retired-omi-diagnostics.sh'))

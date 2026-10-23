@@ -62,8 +62,8 @@ class Qwen3HybridWorkerService : Service() {
                 this@Qwen3HybridWorkerService.encode(samples)
             }
         }
-        override fun finish(): String = report("finish") {
-            synchronized(this@Qwen3HybridWorkerService) { this@Qwen3HybridWorkerService.finish() }
+        override fun finish(callback: IQwen3ProgressCallback?): String = report("finish") {
+            synchronized(this@Qwen3HybridWorkerService) { this@Qwen3HybridWorkerService.finish(callback) }
         }
         override fun cancelCurrent() {
             cancelRequested = true
@@ -181,7 +181,7 @@ class Qwen3HybridWorkerService : Service() {
             .put("encoder_ms", qnnMs).put("encoder_execution_provider", "QNNExecutionProvider")
     }
 
-    private fun finish(): JSONObject {
+    private fun finish(callback: IQwen3ProgressCallback?): JSONObject {
         check(!cancelRequested) { "Qwen transcription cancelled" }
         val dir = requireNotNull(scratch) { "Qwen session missing" }
         require(segments in 1..24) { "Expected 1..24 QNN segments" }
@@ -212,6 +212,7 @@ class Qwen3HybridWorkerService : Service() {
             var summary: JSONObject? = null
             var eos = 0
             var generated = 0
+            val decodedIndices = mutableSetOf<Int>()
             var received = 0
             process.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
@@ -231,8 +232,15 @@ class Qwen3HybridWorkerService : Service() {
                         }
                         line.startsWith("WR_BRIDGE_MULTI_METRIC=") -> {
                             val obj = JSONObject(line.substringAfter('='))
+                            val index = obj.getInt("index")
+                            require(index in 0 until segments && decodedIndices.add(index) && index in tokens) {
+                                "Decoder window receipt invalid"
+                            }
                             if (obj.getBoolean("eos_reached")) eos++
                             generated += obj.getInt("generation_steps")
+                            // Emit progress only on a real native per-window completion receipt.
+                            // No audio, token IDs, text, or private paths cross this callback.
+                            runCatching { callback?.onWindowDecoded(decodedIndices.size, segments) }
                         }
                         line.startsWith("WR_BRIDGE_MULTI_SUMMARY=") -> {
                             require(summary == null)
@@ -245,7 +253,7 @@ class Qwen3HybridWorkerService : Service() {
             check(!cancelRequested)
             val stats = requireNotNull(summary)
             require(stats.getInt("segments") == segments && stats.getInt("model_loads") == 1)
-            require(tokens.size == segments && eos == segments) { "Native EOS/token receipts incomplete" }
+            require(tokens.size == segments && decodedIndices.size == segments && eos == segments) { "Native EOS/token receipts incomplete" }
             val tokenizer = com.example.whisperrecorder.npu.Qwen3ByteTokenizer.load(File(QwenEncoderAssets.directory(this), "tokenizer.json"))
             val cleanSegments = (0 until segments).map { index ->
                 QwenTranscriptCleaner.cleanSegment(tokenizer.decode(tokens.getValue(index)))

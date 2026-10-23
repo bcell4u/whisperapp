@@ -401,27 +401,42 @@ class TranscriptionService : Service() {
                             NOTIFICATION_ID,
                             workingNotification(
                                 if (session is Qwen06Session) "Qwen: preparing audio windows" else "Transcribing segment $chunk of $totalChunks",
-                                if (totalChunks > 1) progressBefore else null,
-                                indeterminate = session is Qwen06Session
+                                if (session is Qwen06Session) QwenWorkProgress.percent(0, 0, 1, chunk, totalChunks)
+                                else if (totalChunks > 1) progressBefore else null,
+                                indeterminate = false
                             )
                         )
                         if (session is Qwen06Session) {
+                            // A late Binder callback must never modify the following outer slice.
+                            val progressChunk = chunk
                             session.onWindowProgress = { completed, windowTotal, phase ->
-                                val current = TranscriptionRuntime.state.value
-                                if (current.active && current.recordingId == request.id && current.chunk == chunk) {
-                                    val message = if (phase == "Decoding") {
-                                        "Qwen: decoding $windowTotal audio windows"
-                                    } else {
-                                        "Qwen: encoded $completed of $windowTotal audio windows"
+                                var updated: TranscriptionState? = null
+                                TranscriptionRuntime.modify { current ->
+                                    if (!current.active || current.stage != "Transcribing" ||
+                                        current.recordingId != request.id || current.chunk != progressChunk ||
+                                        windowTotal != current.qwenWindowsTotal) current
+                                    else {
+                                        val encoded = if (phase == "Encoding") completed else current.qwenWindowsDone
+                                        val decoded = if (phase == "Decoding") completed else current.qwenDecoderDone
+                                        // Ignore out-of-order or stale callbacks; never decrease work units.
+                                        if (encoded < current.qwenWindowsDone || decoded < current.qwenDecoderDone) current
+                                        else {
+                                            val message = if (phase == "Decoding") {
+                                                "Qwen: decoded $decoded of $windowTotal audio windows"
+                                            } else {
+                                                "Qwen: encoded $encoded of $windowTotal audio windows"
+                                            }
+                                            current.copy(qwenWindowsDone = encoded, qwenDecoderDone = decoded,
+                                                qwenPhase = phase, detail = message).also { updated = it }
+                                        }
                                     }
-                                    TranscriptionRuntime.update(
-                                        current.copy(
-                                            qwenWindowsDone = completed, qwenWindowsTotal = windowTotal,
-                                            qwenPhase = phase, detail = message
-                                        )
-                                    )
+                                }
+                                updated?.let { now ->
                                     getSystemService(NotificationManager::class.java).notify(
-                                        NOTIFICATION_ID, workingNotification(message, null, indeterminate = true)
+                                        NOTIFICATION_ID,
+                                        workingNotification(now.detail,
+                                            QwenWorkProgress.percent(now.qwenWindowsDone, now.qwenDecoderDone, now.qwenWindowsTotal,
+                                                now.chunk, now.totalChunks))
                                     )
                                 }
                             }
@@ -442,14 +457,24 @@ class TranscriptionService : Service() {
                                     } else {
                                         "Segment $chunk of $totalChunks • ${seconds}s total • ${chunkElapsed / 1000L}s this segment$slowNote"
                                     }
-                                    TranscriptionRuntime.update(current.copy(stage = "Transcribing", detail = detail, elapsedMs = elapsed, startedAtMs = sessionStarted))
+                                    TranscriptionRuntime.modify { latest ->
+                                        if (latest.active && latest.recordingId == request.id && latest.chunk == chunk &&
+                                            latest.stage == "Transcribing")
+                                            latest.copy(detail = if (latest.qwenWindowsTotal > 0)
+                                                latest.detail.substringBefore(" • elapsed") + " • elapsed ${seconds}s$slowNote"
+                                                else detail, elapsedMs = elapsed, startedAtMs = sessionStarted)
+                                        else latest
+                                    }
                                     if (seconds % 5L == 0L) {
                                         getSystemService(NotificationManager::class.java).notify(
                                             NOTIFICATION_ID,
                                             workingNotification(
-                                                if (current.qwenWindowsTotal > 0) current.detail else "Transcribing • ${seconds}s elapsed$slowNote",
-                                                null,
-                                                indeterminate = current.qwenWindowsTotal > 0
+                                                if (current.qwenWindowsTotal > 0) TranscriptionRuntime.state.value.detail else "Transcribing • ${seconds}s elapsed$slowNote",
+                                                if (current.qwenWindowsTotal > 0) QwenWorkProgress.percent(
+                                                    TranscriptionRuntime.state.value.qwenWindowsDone,
+                                                    TranscriptionRuntime.state.value.qwenDecoderDone,
+                                                    current.qwenWindowsTotal, current.chunk, current.totalChunks) else null,
+                                                indeterminate = false
                                             )
                                         )
                                     }

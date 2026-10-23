@@ -31,8 +31,15 @@ internal class Qwen3HybridClient private constructor(private val app: Context) :
     }
     fun encode(pcm: SharedMemory, count: Int): JSONObject =
         JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.encode(pcm, count))
-    fun finish(): JSONObject =
-        JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.finish())
+    fun finish(onDecoded: (completed: Int, total: Int) -> Unit): JSONObject {
+        val callback = object : IQwen3ProgressCallback.Stub() {
+            override fun onWindowDecoded(completed: Int, total: Int) {
+                // AIDL callback arrives on a Binder pool thread; state consumer is thread-safe.
+                runCatching { onDecoded(completed, total) }
+            }
+        }
+        return JSONObject(requireNotNull(remote) { "Qwen worker disconnected" }.finish(callback))
+    }
     fun cancelCurrent() { runCatching { remote?.cancelCurrent() } }
     override fun close() {
         runCatching { remote?.closeRuntime() }

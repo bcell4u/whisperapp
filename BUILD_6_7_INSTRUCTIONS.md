@@ -87,10 +87,10 @@ trigger the default side-by-side debug build. Check that Android compilation,
 unit tests, lint, APK audit, and Release creation actually pass. A green source
 audit alone does not prove a valid APK or S26 inference.
 
-### v6.7.7 Android lint source fix (run 108367174862)
+### v6.7.8 Android lint source fix (run 108367174862)
 
 All five lint errors reported in this run have targeted source corrections. The
-Android lint gate stays enabled. Apply the 6.7.7 Changed Files Only ZIP at the
+Android lint gate stays enabled. Apply the 6.7.8 Changed Files Only ZIP at the
 repository root (or apply the patch to **clean full 6.7.6**), then run source
 verification and commit. The resulting GitHub Actions run must confirm that
 `:app:lintDebug` succeeds before the debug APK can be published as a prerelease.

@@ -16,8 +16,8 @@ import java.util.concurrent.CancellationException
 internal class Qwen06Session(context: Context) : AsrSession {
     private val client = Qwen3HybridClient.connect(context.applicationContext)
     @Volatile private var cancelled = false
-    // UI-only progress callback: called after each real QNN window and at decoder handoff.
-    // Decoder token progress is not exposed, so the UI must not invent a percentage.
+    // UI-only work-unit progress: QNN encode completions and native decoder window receipts.
+    // No token-rate or time-remaining guesses; model load may hold the counter steady.
     @Volatile var onWindowProgress: ((completed: Int, total: Int, phase: String) -> Unit)? = null
 
     companion object {
@@ -59,8 +59,12 @@ internal class Qwen06Session(context: Context) : AsrSession {
         }
         require(count in 1..24 && count == totalWindows) { "Qwen window count outside safety bound" }
         if (cancelled) throw CancellationException("Qwen transcription cancelled")
-        onWindowProgress?.invoke(count, totalWindows, "Decoding")
-        val result: JSONObject = client.finish()
+        onWindowProgress?.invoke(0, totalWindows, "Decoding")
+        val result: JSONObject = client.finish { completed, total ->
+            if (!cancelled && total == totalWindows && completed in 1..totalWindows) {
+                onWindowProgress?.invoke(completed, totalWindows, "Decoding")
+            }
+        }
         require(result.optBoolean("ok")) { "Qwen llama.cpp decoding failed" }
         require(result.getInt("segments") == count && result.getInt("model_loads") == 1) {
             "Qwen decoder returned incomplete results"

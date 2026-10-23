@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.7
-versionName=6.7.7
-versionCode=67007
+releaseVersion=6.7.8
+versionName=6.7.8
+versionCode=67008
 ```
 
-This source targets v6.7.7. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.8. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -172,7 +172,7 @@ in a *cumulative repair overlay*, makes the audit identify relevant paths,
 and retains strict permission/lint enforcement. Version code `67006`.
 CI compilation/lint and S26 phone tests for 6.7.6 are not yet verified.
 
-## v6.7.7 (Android lint errors from run 108367174862)
+## v6.7.8 (Android lint errors from run 108367174862)
 
 Fixes the five verified Android lint errors without suppressing checks: four Compose
 `StateFlowValueCalledInComposition` errors in `MainActivity` and one

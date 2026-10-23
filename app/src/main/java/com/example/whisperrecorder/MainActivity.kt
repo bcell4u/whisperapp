@@ -52,6 +52,7 @@ import com.example.whisperrecorder.npu.OmiNpuPackageStore
 import com.example.whisperrecorder.models.ModelDownloadRuntime
 import com.example.whisperrecorder.models.ModelDownloadService
 import com.example.whisperrecorder.transcribe.TranscriptionRuntime
+import com.example.whisperrecorder.transcribe.QwenWorkProgress
 import com.example.whisperrecorder.transcribe.TranscriptionService
 import com.example.whisperrecorder.ui.WhisperRecorderTheme
 import com.example.whisperrecorder.ui.SynchronizedAudioPlayer
@@ -605,13 +606,18 @@ class MainActivity : ComponentActivity() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(tx.stage.ifBlank { "Working" }, modifier = Modifier.weight(1f))
                                     if (tx.qwenWindowsTotal > 0) {
-                                        Text("${tx.qwenWindowsDone}/${tx.qwenWindowsTotal} windows", style = MaterialTheme.typography.bodySmall)
+                                        Text(if (tx.qwenPhase == "Decoding")
+                                            "${tx.qwenDecoderDone}/${tx.qwenWindowsTotal} decoded"
+                                        else "${tx.qwenWindowsDone}/${tx.qwenWindowsTotal} encoded",
+                                            style = MaterialTheme.typography.bodySmall)
                                     } else if (tx.totalChunks > 1 && tx.chunk > 0) {
                                         Text("${tx.chunk}/${tx.totalChunks}", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                                 if (tx.stage == "Transcribing" && tx.qwenWindowsTotal > 0) {
-                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    CompactProgressBar(
+                                        QwenWorkProgress.fraction(tx.qwenWindowsDone, tx.qwenDecoderDone, tx.qwenWindowsTotal, tx.chunk, tx.totalChunks),
+                                        Modifier.fillMaxWidth())
                                 } else if (tx.totalChunks > 1 && tx.progress in 1..99) {
                                     CompactProgressBar(tx.progress / 100f, Modifier.fillMaxWidth())
                                 }
@@ -625,7 +631,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     val elapsedLabel = if (tx.elapsedMs > 0L) "Elapsed ${formatElapsed(tx.elapsedMs)}" else "Starting…"
                                     val segmentLabel = when {
-                                        tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoding ${tx.qwenWindowsTotal} Qwen windows • $elapsedLabel"
+                                        tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoded ${tx.qwenDecoderDone} of ${tx.qwenWindowsTotal} Qwen windows • $elapsedLabel"
                                         tx.qwenWindowsTotal > 0 -> "Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen windows • $elapsedLabel"
                                         tx.totalChunks > 1 && tx.chunk > 0 -> "Segment ${tx.chunk} of ${tx.totalChunks} • $elapsedLabel"
                                         else -> elapsedLabel
@@ -1048,14 +1054,16 @@ class MainActivity : ComponentActivity() {
                                 Text(tx.stage.ifBlank { "Transcribing" }, fontWeight = FontWeight.SemiBold)
                                 val determinate = tx.qwenWindowsTotal == 0 && tx.totalChunks > 1 && tx.progress in 1..99
                                 if (tx.stage == "Transcribing" && tx.qwenWindowsTotal > 0) {
-                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                    CompactProgressBar(
+                                        QwenWorkProgress.fraction(tx.qwenWindowsDone, tx.qwenDecoderDone, tx.qwenWindowsTotal, tx.chunk, tx.totalChunks),
+                                        Modifier.fillMaxWidth())
                                 } else if (determinate) {
                                     CompactProgressBar(tx.progress / 100f, Modifier.fillMaxWidth())
                                 }
                                 if (tx.stage == "Transcribing" && tx.totalChunks > 0) {
                                     Text(
                                         when {
-                                            tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoding ${tx.qwenWindowsTotal} Qwen audio windows"
+                                            tx.qwenWindowsTotal > 0 && tx.qwenPhase == "Decoding" -> "Decoded ${tx.qwenDecoderDone} of ${tx.qwenWindowsTotal} Qwen audio windows"
                                             tx.qwenWindowsTotal > 0 -> "Encoded ${tx.qwenWindowsDone} of ${tx.qwenWindowsTotal} Qwen audio windows"
                                             tx.totalChunks == 1 -> "Segment 1 of 1"
                                             else -> "Processing ${formatElapsed(tx.processedMs)} of ${formatElapsed(tx.totalMs)} • Segment ${tx.chunk} of ${tx.totalChunks}"

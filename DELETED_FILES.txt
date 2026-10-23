@@ -1,7 +1,1 @@
-No new tracked-file deletions are required by the clean 6.7.6 -> 6.7.7 update.
-
-Older repositories that skipped previous releases must already have removed:
-  scripts/verify-omi-probe.sh
-  app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt
-  app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt
-These are historical diagnostic-only paths and must not be committed.
+No files deleted in this revision.
