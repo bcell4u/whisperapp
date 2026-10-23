@@ -91,8 +91,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import java.io.File
 import java.util.UUID
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -160,13 +158,12 @@ class MainActivity : ComponentActivity() {
         var showSettings by rememberSaveable { mutableStateOf(false) }
         var selectedRecordingId by rememberSaveable { mutableStateOf<String?>(null) }
         var showExitDialog by rememberSaveable { mutableStateOf(false) }
-        val recordingActiveFlow = remember { RecordingRuntime.state.map { it.active }.distinctUntilChanged() }
-        val transcriptionActiveFlow = remember { TranscriptionRuntime.state.map { it.active }.distinctUntilChanged() }
-        val modelDownloadActiveFlow = remember { ModelDownloadRuntime.state.map { it.active }.distinctUntilChanged() }
-        val recordingActive by recordingActiveFlow.collectAsState(initial = RecordingRuntime.state.value.active)
-        val transcriptionActive by transcriptionActiveFlow.collectAsState(initial = TranscriptionRuntime.state.value.active)
-        val modelDownloadActive by modelDownloadActiveFlow.collectAsState(initial = ModelDownloadRuntime.state.value.active)
-        val backgroundWorkActive = recordingActive || transcriptionActive || modelDownloadActive
+        // StateFlow is observable Compose state here; never read StateFlow.value as
+        // the initial value of a collection while composing (Android lint).
+        val recordingStatus by RecordingRuntime.state.collectAsState()
+        val transcriptionStatus by TranscriptionRuntime.state.collectAsState()
+        val modelDownloadStatus by ModelDownloadRuntime.state.collectAsState()
+        val backgroundWorkActive = recordingStatus.active || transcriptionStatus.active || modelDownloadStatus.active
         val requestedId = requestedRecordingId.value
         LaunchedEffect(requestedId) {
             if (requestedId != null) {
@@ -421,8 +418,8 @@ class MainActivity : ComponentActivity() {
         var batchMessage by remember { mutableStateOf<String?>(null) }
         val tx by TranscriptionRuntime.state.collectAsState()
         val verboseDiagnostics = remember { AppPrefs.isVerboseDiagnostics(this@MainActivity) }
-        val lastSavedRecordingIdFlow = remember { RecordingRuntime.state.map { it.lastSavedRecordingId }.distinctUntilChanged() }
-        val lastSavedRecordingId by lastSavedRecordingIdFlow.collectAsState(initial = RecordingRuntime.state.value.lastSavedRecordingId)
+        val libraryRecordingStatus by RecordingRuntime.state.collectAsState()
+        val lastSavedRecordingId = libraryRecordingStatus.lastSavedRecordingId
         val integrityRevision = libraryIntegrityRevision.intValue
         val modelPath by produceState<String?>(null, integrityRevision) {
             value = withContext(Dispatchers.IO) { ModelSelectionResolver.activeModelPath(this@MainActivity) }

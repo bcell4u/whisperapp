@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.6
-versionName=6.7.6
-versionCode=67006
+releaseVersion=6.7.7
+versionName=6.7.7
+versionCode=67007
 ```
 
-This source targets v6.7.6. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.7. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -171,3 +171,12 @@ v6.7.4 microphone-permission files. This version includes those prerequisites
 in a *cumulative repair overlay*, makes the audit identify relevant paths,
 and retains strict permission/lint enforcement. Version code `67006`.
 CI compilation/lint and S26 phone tests for 6.7.6 are not yet verified.
+
+## v6.7.7 (Android lint errors from run 108367174862)
+
+Fixes the five verified Android lint errors without suppressing checks: four Compose
+`StateFlowValueCalledInComposition` errors in `MainActivity` and one
+`SuspiciousIndentation` in `TranscriptionService`. Continues to enforce lint for
+automatic prerelease publication. Nine lower-severity lint warnings are documented
+for later review; this revision does not alter model runtimes or target SDK.
+`versionCode=67007`. CI and S26 testing remain pending.

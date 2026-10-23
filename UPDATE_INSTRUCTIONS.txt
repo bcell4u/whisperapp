@@ -1,1 +1,15 @@
-Overlay from repository root preserving paths. Run bash scripts/verify-source.sh and python3 scripts/audit-qwen-production.py before committing.
+WhisperRecorder 6.7.7 -- Android lint source fix.
+
+Extract into the ROOT of your existing 6.7.6 GitHub repository, preserving
+.github/, app/, scripts/, and other directory paths. Overwrite changed files.
+No new deletions are needed; see DELETED_FILES.txt for old diagnostic remnants.
+
+Run:
+  bash scripts/verify-source.sh
+  python3 scripts/audit-qwen-production.py
+  git add -A && git diff --cached --name-status
+  git commit -m "WhisperRecorder 6.7.7 Android lint fixes"
+  git push
+
+Push triggers the debug .dev APK build and (only after lint passes) its
+GitHub prerelease. The patch applies to a CLEAN full 6.7.6 source tree.

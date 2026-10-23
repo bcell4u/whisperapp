@@ -610,14 +610,14 @@ class TranscriptionService : Service() {
 
                         val processed = timedChunk.endMs.coerceAtMost(total)
                         val progress = if (total > 0) ((processed * 100) / total).toInt().coerceIn(0, 99) else 0
-                            TranscriptionRuntime.update(
-                                TranscriptionState(
-                                    recordingId = request.id, active = true, progress = progress, processedMs = processed,
-                                    totalMs = total, chunk = chunk, totalChunks = totalChunks, modelName = modelName,
-                                    stage = "Transcribing", detail = "Completed segment $chunk of $totalChunks",
-                                    elapsedMs = System.currentTimeMillis() - sessionStarted, startedAtMs = sessionStarted
-                                )
+                        TranscriptionRuntime.update(
+                            TranscriptionState(
+                                recordingId = request.id, active = true, progress = progress, processedMs = processed,
+                                totalMs = total, chunk = chunk, totalChunks = totalChunks, modelName = modelName,
+                                stage = "Transcribing", detail = "Completed segment $chunk of $totalChunks",
+                                elapsedMs = System.currentTimeMillis() - sessionStarted, startedAtMs = sessionStarted
                             )
+                        )
                             if (prefetchedNext != null) {
                                 val waitStarted = System.currentTimeMillis()
                                 val nextPrefetch = prefetchedNext.await()

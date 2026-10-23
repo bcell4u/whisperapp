@@ -18,7 +18,17 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.6 / 67006': version == {'releaseVersion':'6.7.6','versionName':'6.7.6','versionCode':'67006'},
+    'version 6.7.7 / 67007': version == {'releaseVersion':'6.7.7','versionName':'6.7.7','versionCode':'67007'},
+    'Compose observes runtime StateFlows without .value initializers': (
+        'val recordingStatus by RecordingRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
+        and 'val transcriptionStatus by TranscriptionRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
+        and 'val modelDownloadStatus by ModelDownloadRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
+        and 'val libraryRecordingStatus by RecordingRuntime.state.collectAsState()' in read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')
+        and re.search(r'collectAsState\s*\(\s*initial\s*=\s*\w+Runtime\.state\.value', read('app/src/main/java/com/example/whisperrecorder/MainActivity.kt')) is None
+    ),
+    'Transcription chunk progress statement aligned with neighboring statements': (
+        re.search(r'(?m)^ {24}val progress = if .*\n {24}TranscriptionRuntime\.update\(', read('app/src/main/java/com/example/whisperrecorder/transcribe/TranscriptionService.kt')) is not None
+    ),
     'microphone probe checks RECORD_AUDIO at AudioRecord constructor boundary': all(s in read('app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt') for s in (
         'checkPcm(context, source, noiseSuppressor, aec)',
         'private fun checkPcm(context: Context',
