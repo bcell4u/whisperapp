@@ -1,31 +1,27 @@
-# v6.6.26: same-BF16-weight HF BF16/FP32 arithmetic against GGUF BF16 controls.
-# Synthetic data only; Android runtime is never used or modified.
-name: Qwen same-weight execution precision controls
+# v6.6.27 host-only GGUF BF16 M-RoPE single-axis attribution.
+# Does not change Android inference, QNN, production release, or transcription data.
+name: Qwen GGUF RoPE axis attribution
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/qwen-host-reference-verification.yml'
-      - 'scripts/measure-qwen-hf-execution-precision.py'
-      - 'scripts/evaluate-qwen-hf-execution-precision.py'
-      - 'scripts/test-qwen-hf-execution-precision.py'
-      - 'scripts/evaluate-qwen-cross-backend-positions.py'
-      - 'scripts/test-qwen-cross-backend-positions.py'
+      - 'scripts/evaluate-qwen-rope-axis.py'
+      - 'scripts/test-qwen-rope-axis.py'
+      - 'scripts/test-qwen-workflow-context.py'
       - 'scripts/verify-lab-source.py'
       - 'verification/host/**'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  execution-precision-parity:
+  host-rope-axis:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 120
     env:
-      HF_HUB_DISABLE_TELEMETRY: '1'
       OMP_NUM_THREADS: '4'
-      TOKENIZERS_PARALLELISM: 'false'
     steps:
-      - name: Checkout complete experimental Lab source
+      - name: Checkout isolated Lab source
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -33,26 +29,16 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${RUNNER_TEMP:-}"
-          mkdir -p "$RUNNER_TEMP/qwen-hf-cache" artifact/host artifact/hf
+          mkdir -p "$RUNNER_TEMP/qwen-hf-cache" artifact/host
           echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"
-      - name: Validate source and cross-backend controls
+      - name: Validate source and axis attribution failure cases
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --no-cache-dir 'numpy>=1.26,<3'
           python3 scripts/verify-lab-source.py
-      - name: Install pinned CPU torch and Hugging Face dependencies
-        run: |
-          set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --index-url https://download.pytorch.org/whl/cpu 'torch==2.7.1+cpu'
-          python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            'transformers==5.20.2' 'huggingface_hub>=0.30,<2' \
-            'safetensors>=0.5' 'accelerate>=1.0' 'numpy>=1.26,<3'
-          python3 scripts/test-qwen-cross-backend-positions.py
-          python3 scripts/test-qwen-hf-execution-precision.py
-          python3 scripts/test-qwen-hf-position-contract.py
+          python3 scripts/test-qwen-rope-axis.py
           python3 scripts/test-qwen-workflow-context.py
-      - name: Download verified independent checkpoint and GGUF BF16
+      - name: Download SHA-verified public GGUF BF16
         run: |
           set -euo pipefail
           BF16="$RUNNER_TEMP/Qwen3-ASR-0.6B-bf16.gguf"
@@ -60,43 +46,19 @@ jobs:
             -o "$BF16" 'https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-bf16.gguf?download=true'
           echo "12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50  $BF16" | sha256sum -c -
           echo "GGUF_BF16=$BF16" >> "$GITHUB_ENV"
-          python3 - <<'PYHF'
-          from huggingface_hub import snapshot_download
-          from pathlib import Path
-          import hashlib,os
-          rev='6aa69c382e2b426eee1f5870d4c95859a74b6445'
-          folder=Path(snapshot_download(repo_id='Qwen/Qwen3-ASR-0.6B-hf',revision=rev,
-                    allow_patterns=['model.safetensors','config.json']))
-          assert folder.name==rev,'HF_REVISION_MISMATCH'
-          h=hashlib.sha256()
-          with (folder/'model.safetensors').open('rb') as f:
-              for block in iter(lambda:f.read(4*1024*1024),b''):h.update(block)
-          assert h.hexdigest()=='d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35','HF_SHA_MISMATCH'
-          with open(os.environ['GITHUB_ENV'],'a') as out:out.write('HF_CHECKPOINT='+str(folder)+'\n')
-          print('INDEPENDENT_HF_WEIGHT_SHA_AND_REVISION_VERIFIED')
-          PYHF
-      - name: Build pinned host llama.cpp reference without Android changes
+      - name: Build pinned host llama.cpp M-RoPE probe
         run: |
           set -euo pipefail
           command -v ninja >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y ninja-build; }
           git clone --quiet --depth 1 --branch v0.6.0 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama-host"
           test "$(git -C "$RUNNER_TEMP/llama-host" rev-parse HEAD)" = d81235049384534c167caea52b85a694f6103d14
           cmake -S verification/host -B "$RUNNER_TEMP/host-build" -G Ninja \
-            -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" \
-            -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF
+            -DLLAMA_CPP_SOURCE="$RUNNER_TEMP/llama-host" -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF
           cmake --build "$RUNNER_TEMP/host-build" --target qwen-mixed-reference --parallel 4
           echo "MIXED_RUNNER=$RUNNER_TEMP/host-build/qwen-mixed-reference" >> "$GITHUB_ENV"
-      - name: Phase 1 - same-weight HF BF16 and FP32 runtime logits (three input controls)
-        id: hf_reference
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          python3 scripts/measure-qwen-hf-execution-precision.py \
-            --checkpoint "$HF_CHECKPOINT" \
-            --features verification/fixtures/s26-synthetic-features.f32le \
-            --output-dir artifact/hf
-      - name: Phase 2 - matching BF16 GGUF logits, Flash Attention ON and OFF
-        id: host_reference
+      - name: Phase 1 - linear baseline and uniform-position controls
+        id: baseline
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -105,66 +67,86 @@ jobs:
             for attn in flash-off flash-on; do
               folder="artifact/host/$mode/$attn"
               mkdir -p "$folder"
-              if "$MIXED_RUNNER" "$GGUF_BF16" \
-                  verification/fixtures/s26-synthetic-features.f32le "$folder" \
-                  unified 256 4 original "$attn" "$mode" \
-                  >"$folder/inference.log" 2>&1 && test -s "$folder/logits-step-00.f32le"; then
-                echo "PASS: host $mode / $attn"
+              if "$MIXED_RUNNER" "$GGUF_BF16" verification/fixtures/s26-synthetic-features.f32le \
+                  "$folder" unified 256 4 original "$attn" "$mode" >"$folder/inference.log" 2>&1 \
+                  && test -s "$folder/logits-step-00.f32le"; then
+                echo "PASS: $mode $attn"
               else
-                echo "INCONCLUSIVE_HOST_BRANCH: $mode / $attn" >&2
+                echo "INCONCLUSIVE_HOST_BRANCH: $mode $attn" >&2
                 failures=$((failures + 1))
               fi
-              # Only prefill logits are needed; forced-token outputs are not exported.
               rm -f "$folder"/logits-step-0[1-5].f32le
             done
           done
           test "$failures" -eq 0
-      - name: Phase 3 - compare HF precision and positional responses against GGUF
+      - name: Phase 2 - perturb each GGUF position axis independently
+        id: axes
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          failures=0
+          for family in pos-plus17 pos-suffix-gap11; do
+            for axis in 0 1 2 3; do
+              mode="$family-axis$axis"
+              for attn in flash-off flash-on; do
+                folder="artifact/host/$mode/$attn"
+                mkdir -p "$folder"
+                if "$MIXED_RUNNER" "$GGUF_BF16" verification/fixtures/s26-synthetic-features.f32le \
+                    "$folder" unified 256 4 original "$attn" "$mode" >"$folder/inference.log" 2>&1 \
+                    && test -s "$folder/logits-step-00.f32le"; then
+                  echo "PASS: $mode $attn"
+                else
+                  echo "INCONCLUSIVE_HOST_BRANCH: $mode $attn" >&2
+                  failures=$((failures + 1))
+                fi
+                rm -f "$folder"/logits-step-0[1-5].f32le
+              done
+            done
+          done
+          test "$failures" -eq 0
+      - name: Phase 3 - compare axis responses and verify graph paths
         if: always()
         continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p artifact
-          python3 scripts/evaluate-qwen-hf-execution-precision.py \
-            --artifact-dir artifact --output artifact/EXECUTION_PRECISION_REPORT.json
-      - name: Write synthetic fixture provenance
+          python3 scripts/evaluate-qwen-rope-axis.py --artifact-dir artifact \
+            --output artifact/ROPE_AXIS_ATTRIBUTION_REPORT.json
+      - name: Write privacy-safe synthetic provenance
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder v6.6.26 same-BF16-weights HF FP32 runtime comparison against GGUF'
+            echo 'WhisperRecorder v6.6.27 GGUF M-RoPE host-only single-axis position attribution'
             echo "lab_commit=$GITHUB_SHA"
-            echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
-            echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
+            echo 'llama_cpp_commit=d81235049384534c167caea52b85a694f6103d14'
             echo 'gguf_bf16_sha256=12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50'
             echo 'features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
-            echo 'position_maps=linear,plus1,plus17,suffix-gap11'
-            echo 'host_axes=4 equal scalar positions;hf=2D;hf_dtype=BF16,FP32-rounded-input,FP32-exact-audio'
-            echo 'hf_runtime_branches=bf16,fp32-rounded-input,fp32-exact-audio'
+            echo 'position_controls=linear,plus1,plus17,suffix-gap11,plus17-axis0..3,suffix-gap11-axis0..3'
             echo 'host_attention=flash-off,flash-on;host_batch=256;host_threads=4'
             echo 'official_asr_mrope_grid_parity=NOT_VERIFIED;synthetic_only=true'
             echo 'android_decoder_changed=false;no_user_audio_or_transcript=true'
           } > artifact/PROVENANCE.txt
-      - name: Upload same-weight precision experiment even if stages fail
+      - name: Upload axis attribution output even when a branch fails
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.26-hf-execution-precision-${{ github.run_number }}
+          name: qwen-6.6.27-host-rope-axis-attribution-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
-      - name: Fail when required runtime precision branches were not completed
+      - name: Fail if any required axis or attention graph was not observed
         if: always()
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
           from pathlib import Path
-          p=Path('artifact/EXECUTION_PRECISION_REPORT.json')
-          if not p.is_file():raise SystemExit('PRECISION_COMPARISON_UNAVAILABLE; review artifact and job logs')
-          r=json.loads(p.read_text())
-          if r['status']!='SAME_WEIGHTS_EXECUTION_PRECISION_COMPARISON_COMPLETE':
-              raise SystemExit('PRECISION_COMPARISON_INCOMPLETE; inspect artifact missing_branches')
-          print('Same-weight execution precision experiment completed; correctness not certified')
+          p=Path('artifact/ROPE_AXIS_ATTRIBUTION_REPORT.json')
+          if not p.is_file(): raise SystemExit('AXIS_ATTRIBUTION_REPORT_UNAVAILABLE')
+          d=json.loads(p.read_text())
+          if d['status']!='MROPE_AXIS_ATTRIBUTION_COMPLETE':
+              raise SystemExit('AXIS_ATTRIBUTION_INCOMPLETE: review artifact missing list')
+          print('GGUF axis attribution complete; no official audio M-RoPE parity implied')
           PY

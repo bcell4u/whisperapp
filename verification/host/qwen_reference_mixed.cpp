@@ -69,14 +69,22 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
     auto set_position = [&](int idx) {
         require(idx >= 0, "CANNOT_APPEND_MIXED_ITEM");
         const int index = position++;
-        // 6.6.25 host-only parity controls. All four GGUF axes receive the
-        // same scalar 2D HF position. These are mathematical controls, not
-        // a claim of official Qwen audio position-grid equivalence.
-        llama_pos current = static_cast<llama_pos>(index);
-        if (pos_mode == "pos-plus1") current += 1;
-        if (pos_mode == "pos-plus17") current += 17;
-        if (pos_mode == "pos-suffix-gap11" && index >= 165) current += 11;
-        const llama_pos all_axes[4] = {current,current,current,current};
+        // Host-only 6.6.27 M-RoPE axis attribution. All token indices remain
+        // strictly increasing along every axis, preserving causal order.
+        // Axis-specific probes are NOT official Qwen audio M-RoPE positions.
+        llama_pos all_axes[4] = {index,index,index,index};
+        const bool suffix = pos_mode.find("pos-suffix-gap11") == 0;
+        const bool shift17 = pos_mode.find("pos-plus17") == 0;
+        const bool shift1 = pos_mode == "pos-plus1";
+        const int delta = suffix ? (index >= 165 ? 11 : 0) : (shift17 ? 17 : (shift1 ? 1 : 0));
+        const auto axis_suffix = pos_mode.find("-axis");
+        if (axis_suffix == std::string::npos) {
+            for (auto & axis : all_axes) axis += delta;
+        } else {
+            const int axis = pos_mode.back() - '0';
+            require(axis >= 0 && axis < 4, "INVALID_POSITION_AXIS");
+            all_axes[axis] += delta;
+        }
         require(llama_batch_ext_set_pos(batch.value, idx, all_axes), "MIXED_POSITION_FAILED");
         return idx;
     };
@@ -163,7 +171,7 @@ void run(llama_context * ctx, const std::vector<float> & audio, const std::files
 
 int main(int argc, char ** argv) {
     if (argc != 5 && argc != 7 && argc != 8 && argc != 9 && argc != 10) {
-        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler] [auto|flash-off|flash-on] [greedy-24|pos-linear|pos-plus1|pos-plus17|pos-suffix-gap11]]\n", argv[0]);
+        std::fprintf(stderr, "Usage: %s Q8.gguf FEATURES.f32le OUTPUT_DIR MODE [UBATCH=64|128|160|192|256 THREADS=1|4 [original|zero|text-filler] [auto|flash-off|flash-on] [greedy-24|pos-linear|pos-plus1|pos-plus17|pos-suffix-gap11|pos-plus17-axis0..3|pos-suffix-gap11-axis0..3]]\n", argv[0]);
         return 2;
     }
     const std::string mode = argv[4];
@@ -173,8 +181,13 @@ int main(int argc, char ** argv) {
     const std::string step_arg = argc == 10 ? argv[9] : "";
     const int greedy_max = step_arg == "greedy-24" ? 24 : 0;
     const std::string pos_mode = step_arg.rfind("pos-", 0) == 0 ? step_arg : "pos-linear";
+    const bool axis_map = step_arg.size() > 5 &&
+        (step_arg.rfind("pos-plus17-axis", 0) == 0 ||
+         step_arg.rfind("pos-suffix-gap11-axis", 0) == 0) &&
+        step_arg.back() >= '0' && step_arg.back() <= '3' &&
+        step_arg.find("-axis") + 6 == step_arg.size();
     if (argc == 10 && greedy_max == 0 && step_arg != "pos-linear" && step_arg != "pos-plus1" &&
-        step_arg != "pos-plus17" && step_arg != "pos-suffix-gap11") return 2;
+        step_arg != "pos-plus17" && step_arg != "pos-suffix-gap11" && !axis_map) return 2;
     if (attention != "auto" && attention != "flash-off" && attention != "flash-on") return 2;
     if (input_kind != "original" && input_kind != "zero" && input_kind != "text-filler") return 2;
     // Explicit allowlist, fail closed on malformed host-test configurations.

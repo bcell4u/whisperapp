@@ -16,8 +16,8 @@ def read(path):
     return p.read_text(encoding='utf-8') if p.is_file() else ''
 
 version = read('version.properties')
-check(version == 'releaseVersion=6.6.26\nversionName=6.6.26\nversionCode=66026\n',
-      '6.6.26 version metadata mismatch or not synchronized')
+check(version == 'releaseVersion=6.6.27\nversionName=6.6.27\nversionCode=66027\n',
+      '6.6.27 version metadata mismatch or not synchronized')
 gradle = read('app/build.gradle.kts')
 check('applicationId = "com.example.whisperrecorder.qwengguflab"' in gradle, 'lab application ID missing')
 check('applicationIdSuffix = ".dev"' in gradle, 'debug suffix missing')
@@ -58,7 +58,7 @@ except ET.ParseError as error:
     errors.append(f'AndroidManifest.xml invalid XML: {error}')
 
 
-# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.26 Lab
+# Version-pinned Kotlin/AIDL inventory, captured from the complete v6.6.27 Lab
 # source ZIP. A partial web upload can pass spot checks but fail at Gradle.
 # Report ALL absent source files before downloading SDKs or dependencies.
 # This checks file presence, not whether the Kotlin code compiles.
@@ -360,68 +360,64 @@ check('WR_ENABLE_ARM_DOTPROD' in cmake and '-march=armv8.2-a+dotprod' in cmake,
 yml = read('.github/workflows/qwen-gguf-lab-6.6-autorelease.yml')
 for marker in ['  push:', '    branches: [main]', 'workflow_dispatch:',
                'contents: write', 'gh release create', '--prerelease --latest=false',
-               'v6.6.26-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
+               'v6.6.27-lab.', 'app/build/outputs/apk/debug/app-debug.apk',
                'ANDROID_SIGNING_CERT_SHA256', 'libonnxruntime_providers_qnn.so',
-               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66026'",
-               "versionName='6.6.26-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
+               'libQnnHtp.so', 'qwengguflab.dev', "versionCode='66027'",
+               "versionName='6.6.27-dev'", 'apksigner', 'WR_LAB_STORE_FILE', 'WR_QWEN_PROMPT_ROLE_8948_872_V1', 'WR_QWEN_SYNTHETIC_LOGITS_V1', 'scripts/test-qwen-prompt-contract.py', 'scripts/test-qwen-logit-comparison.py', 'scripts/test-qwen-synthetic-logit-contract.py', 'scripts/test-qwen-external-reference.py']:
     check(marker in yml, f'CI auto-release/provenance gate missing: {marker}')
 
-# v6.6.26 same-weight BF16 versus FP32 execution-precision comparison; weight identity
-# is already covered by archived v6.6.24 artifacts and archived audit scripts.
+# v6.6.27 GGUF-only 4-axis attribution. Previous precision comparators remain
+# preserved and testable, while the active workflow avoids redownloading HF.
 host_workflow = read('.github/workflows/qwen-host-reference-verification.yml')
-for marker in ('workflow_dispatch:', 'EXECUTION_PRECISION_REPORT.json',
-               'qwen-6.6.26-hf-execution-precision-',
-               'scripts/measure-qwen-hf-execution-precision.py',
-               'scripts/evaluate-qwen-hf-execution-precision.py',
-               'scripts/test-qwen-hf-execution-precision.py',
+for marker in ('workflow_dispatch:', 'ROPE_AXIS_ATTRIBUTION_REPORT.json',
+               'qwen-6.6.27-host-rope-axis-attribution-',
+               'scripts/evaluate-qwen-rope-axis.py',
+               'scripts/test-qwen-rope-axis.py',
                'pos-suffix-gap11', 'pos-plus17', 'flash-off', 'flash-on',
                'd81235049384534c167caea52b85a694f6103d14',
-               '6aa69c382e2b426eee1f5870d4c95859a74b6445',
                'official_asr_mrope_grid_parity=NOT_VERIFIED'):
-    check(marker in host_workflow, f'v6.6.26 precision experiment missing {marker}')
-for f in ('scripts/measure-qwen-hf-execution-precision.py',
+    check(marker in host_workflow, f'6.6.27 axis attribution workflow missing {marker}')
+for f in ('scripts/evaluate-qwen-rope-axis.py',
+          'scripts/test-qwen-rope-axis.py',
+          'LAB_6_6_27_AXIS_ATTRIBUTION.md', 'LAB_6_6_27_VALIDATION.md',
+          'scripts/measure-qwen-hf-execution-precision.py',
           'scripts/evaluate-qwen-hf-execution-precision.py',
           'scripts/test-qwen-hf-execution-precision.py',
-          'LAB_6_6_26_EXECUTION_PRECISION.md',
-          'LAB_6_6_26_VALIDATION.md'):
-    read(f)
-for f in ('scripts/measure-qwen-hf-position-parity.py',
+          'scripts/measure-qwen-hf-position-parity.py',
           'scripts/evaluate-qwen-cross-backend-positions.py',
           'scripts/test-qwen-cross-backend-positions.py'):
     read(f)
 for marker in ('pos-plus1', 'pos-plus17', 'pos-suffix-gap11',
-               'const llama_pos all_axes[4] = {current,current,current,current}'):
+               'llama_pos all_axes[4] = {index,index,index,index}',
+               'pos-plus17-axis', 'pos-suffix-gap11-axis',
+               'all_axes[axis] += delta'):
     check(marker in read('verification/host/qwen_reference_mixed.cpp'),
-          f'host position map missing {marker}')
-# `runner` is unavailable in job-level `env` (workflow validation happens before routing).
-# Set HF_HOME on the actual runner via GITHUB_ENV in an early shell step.
+          f'host axis attribution missing {marker}')
 check('${{ runner.' not in host_workflow,
-      'host workflow embeds runner context in an expression; verify scope before release')
+      'unsupported runner context in job-level GitHub env')
 for marker in ('Initialize temporary directories on runner',
                'echo "HF_HOME=$RUNNER_TEMP/qwen-hf-cache" >> "$GITHUB_ENV"',
                'scripts/test-qwen-workflow-context.py'):
-    check(marker in host_workflow, f'6.6.26 runner-temporary-dir guard missing {marker}')
-for marker in ('fp32-rounded-input', 'fp32-exact-audio',
-               'SAME_WEIGHTS_EXECUTION_PRECISION_COMPARISON_COMPLETE'):
-    check(marker in (read('scripts/evaluate-qwen-hf-execution-precision.py') + read('scripts/measure-qwen-hf-execution-precision.py') + host_workflow),
-          f'v6.6.26 missing execution precision guard {marker}')
+    check(marker in host_workflow, f'workflow runner context regression missing {marker}')
+check('MROPE_AXIS_ATTRIBUTION_COMPLETE' in read('scripts/evaluate-qwen-rope-axis.py'),
+      'axis attribution evaluator incomplete')
 read('scripts/test-qwen-workflow-context.py')
 read('LAB_6_6_23_WORKFLOW_CONTEXT_FIX.md')
 parser = read('scripts/audit-qwen-gguf-hf-weights.py')
 for marker in ('LIMIT_ARRAY = 2000000', 'skip_metadata_value',
                'def skip_text(self)', 'return [\'ARRAY_COUNT\', length]'):
-    check(marker in parser, f'6.6.26 large-GGUF-tokenizer parser repair missing {marker}')
+    check(marker in parser, f'6.6.27 large-GGUF-tokenizer parser repair missing {marker}')
 weight_test = read('scripts/test-qwen-weight-identity.py')
 for marker in ('LARGE_REALISTIC_TOKENIZER_ARRAY', 'GGUF_EXCESSIVE_ARRAY_LENGTH',
                'INVALID_OR_TRUNCATED_BINARY_HEADER'):
-    check(marker in weight_test, f'6.6.26 oversized metadata regression missing {marker}')
+    check(marker in weight_test, f'6.6.27 oversized metadata regression missing {marker}')
 for marker in ('def bf16_to_f32_storage_match(', 'HF_BF16_CAST_TO_GGUF_F32',
                'storage_conversion_equivalent_tensors',
                'AUDITED_TENSORS_EQUAL_WITH_STORAGE_CONVERSION'):
-    check(marker in parser, f'6.6.26 precision-aware tensor audit missing {marker}')
+    check(marker in parser, f'6.6.27 precision-aware tensor audit missing {marker}')
 for marker in ('norms_f32=True', 'first_mismatched_element',
                'converted_f32_norm_tensors'):
-    check(marker in weight_test, f'6.6.26 BF16/F32 conversion regression missing {marker}')
+    check(marker in weight_test, f'6.6.27 BF16/F32 conversion regression missing {marker}')
 for f in ('scripts/audit-qwen-qk-layout.py',
           'scripts/probe-qwen-hf-position-axes.py',
           'scripts/evaluate-qwen-multiphase.py',
@@ -436,15 +432,15 @@ for marker in ('equal_3_axis', 'equal_4_axis',
                'asymmetric_4_axis_control', 'official_mrope_grid_reference'):
     check(marker in read('scripts/probe-qwen-hf-position-axes.py'),
           f'independent position-axis control missing {marker}')
-# 6.6.26: direct HF position API test adds supported 2D and RoPE rank diagnostics.
+# 6.6.27: direct HF position API test adds supported 2D and RoPE rank diagnostics.
 position_probe=read('scripts/probe-qwen-hf-position-axes.py')
 for marker in ('implicit_2d', 'uniform_plus_17', 'suffix_gap_11',
                'asymmetric_3_axis_control', 'direct_rotary', 'error_message',
                'HF_2D_POSITION_CONTRACT_VERIFIED', 'official_mrope_grid_reference'):
-    check(marker in position_probe, f'6.6.26 position-contract check missing {marker}')
+    check(marker in position_probe, f'6.6.27 position-contract check missing {marker}')
 read('scripts/test-qwen-hf-position-contract.py')
-check('scripts/test-qwen-hf-position-contract.py' in host_workflow,
-      'new HF position control not enabled in GitHub CI')
+check('scripts/test-qwen-rope-axis.py' in host_workflow,
+      'new GGUF axis control not enabled in GitHub CI')
 read('LAB_6_6_24_POSITION_CONTRACT.md')
 read('LAB_6_6_24_VALIDATION.md')
 read('LAB_6_6_22_NORM_WEIGHT_EQUIVALENCE.md')
@@ -532,4 +528,4 @@ if errors:
     for issue in errors:
         print('FAIL:', issue, file=sys.stderr)
     sys.exit(1)
-print('PASS: isolated v6.6.26 source/workflow static gates (NOT an APK compile)')
+print('PASS: isolated v6.6.27 source/workflow static gates (NOT an APK compile)')

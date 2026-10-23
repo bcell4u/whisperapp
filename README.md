@@ -1,11 +1,11 @@
-# WhisperRecorder Qwen GGUF Lab 6.6.26 — same-weight execution-precision controls
+# WhisperRecorder Qwen GGUF Lab 6.6.27 — M-RoPE axis attribution
 
-Experimental Android versionName `6.6.26`, versionCode `66026`. The working QNN encoder, four-thread ARM64 Q8_0 decoder, Flash Attention behavior, transcription speed settings and separate production 6.5.22 app remain **unchanged**.
+Experimental Android versionName `6.6.27`, versionCode `66027`. The working QNN encoder, four-thread ARM64 Q8_0 decoder, Flash Attention behavior, transcription speed settings and separate production 6.5.22 app remain **unchanged**.
 
-**6.6.25 evidence:** twelve hashed synthetic logit vectors verified. All conditions selected token ID 11528; HF BF16 responded more strongly than GGUF BF16 to a uniform `+17` position offset. This observation does not establish a positional implementation defect or clinical accuracy problem.
+**6.6.26 evidence:** All 20 saved synthetic logit vectors were checked by SHA-256 and argmax. Using FP32 arithmetic with the same stored HF BF16 checkpoint weights greatly reduced the HF↔GGUF numerical discrepancy; BF16 rounding of the synthetic audio features alone made only a small difference. HF FP32 was almost invariant to uniform positional shifts, whereas the GGUF host remained more sensitive. This does not establish a correctness or transcription defect.
 
-**6.6.26 experiment:** use the same pinned public HF BF16 checkpoint in BF16 arithmetic, in FP32 arithmetic with the *same BF16-rounded inputs*, and in FP32 arithmetic using original FP32 synthetic audio embeddings. Compare four matched positional maps to GGUF BF16 Flash-ON/OFF controls. Report position-response residuals instead of treating different raw logits as a bug. See `LAB_6_6_26_EXECUTION_PRECISION.md`.
+**6.6.27 experiment:** On one pinned llama.cpp GGUF BF16 host, compare +17 global shifts and suffix +11 gaps applied to all four position axes versus each individual axis. Retain a normal and +1 baseline and both Flash Attention graph paths. Generate 24 first-step logit vectors and report per-axis sensitivity, interaction residuals, and first-token agreement. No HF model download or Android execution is needed for this host experiment. See `LAB_6_6_27_AXIS_ATTRIBUTION.md`.
 
-Push the complete source to the separate Lab repository `main` branch. Upload the GitHub artifact **`qwen-6.6.26-hf-execution-precision-*.zip`** for analysis. No phone test is needed.
+Push the complete source to the separate Lab repository `main` branch. Upload the GitHub artifact **`qwen-6.6.27-host-rope-axis-attribution-*.zip`** for analysis. No phone test is needed.
 
-The source regression suite and packaging verification are **not** a substitute for the scheduled GitHub model experiment and APK compilation. Official Qwen audio M-RoPE parity, full end-to-end encoder accuracy and medical transcription improvements remain unverified.
+Source regression and packaging checks are not substitutes for the actual pinned GGUF run and Android APK compilation in GitHub Actions. Official Qwen ASR audio M-RoPE grid parity, on-device encoder parity, and medical-lecture transcription improvements remain **unverified**.
