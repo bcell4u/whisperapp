@@ -1,0 +1,10 @@
+# WhisperRecorder 6.7.0 — automatic GitHub Actions build
+
+1. Use the attached **complete source ZIP** in a separate branch or apply the attached **patch against pristine v6.5.22**. Ensure `transcribenative/` and retired 1.7B model files are actually deleted from Git, not merely omitted by overlay. Protect signing secrets and recordings.
+2. Commit and **push** the changed source, including `.github/workflows/build.yml`. GitHub Actions > **Build Android APK** starts automatically for pushes to **any branch**. Actions must be enabled in the repository. No `Run workflow` click is required for a push build.
+3. The automatic variant is always **debug `.dev`**, package `com.example.whisperrecorder.dev`, `versionName=6.7.0-dev`, `versionCode=67000`. The production app remains installed separately. No tag, release or production install is triggered.
+4. Manual runs remain available from **Actions > Build Android APK > Run workflow**. Choose `debug` for safe testing; `release` requires a deliberate manual choice and all five original signing secrets. Do not install a release candidate over v6.5.22 until smoke tests, APK/signature review and backups pass.
+5. Review the new run, especially **Compile and stage ARM64 llama.cpp dotprod decoder** (run 108120053894 previously failed on an NDK `HWCAP_ASIMDDP` macro redefinition; source now corrected). Inspect test/Gradle/AIDL output, Android lint, APK audit and downloadable `WhisperRecorder-build-<run-number>` artifact with `build-proof.txt`.
+6. On qualified Galaxy S26 SM-S942U, install the `.dev` APK alongside the 6.5.22 app and test on-demand ~805 MB Q8 GGUF + ~391 MB QNN package download, short and long speech, cancellation, transcript save and all original Whisper/Parakeet/Omi/speaker functions. Verify native decoder execution and QNN provider/HTP loading with CPU fallback disabled.
+
+The local verification passed source tests but **did not compile a complete Android APK**. Pushing these files starts the GitHub workflow; there is no direct GitHub repository connection in this environment to push or trigger it for you.

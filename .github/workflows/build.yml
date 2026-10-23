@@ -1,7 +1,11 @@
 name: Build Android APK
 
-# Manual staging build: never automatically publish an untested production 6.7 APK.
+# Every branch push builds a side-by-side debug .dev APK; release remains manual.
+# No automatic GitHub releases, tags or production installs.
 on:
+  push:
+    branches:
+      - '**'
   workflow_dispatch:
     inputs:
       build_variant:
@@ -207,7 +211,7 @@ jobs:
           gradle --no-daemon testDebugUnitTest --stacktrace --build-cache --max-workers=2
 
       - name: Detect release signing availability
-        if: inputs.build_variant == 'release'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release'
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -231,7 +235,7 @@ jobs:
           fi
 
       - name: Restore permanent release signing key
-        if: inputs.build_variant == 'release' && env.HAS_RELEASE_SIGNING == 'true'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release' && env.HAS_RELEASE_SIGNING == 'true'
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -275,7 +279,7 @@ jobs:
           cd "$PROJECT_DIR"
           # The repository may already contain production signing secrets. Never let
           # their presence turn the default test run into a production-ID APK.
-          if [ "${{ inputs.build_variant }}" = "release" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_variant }}" = "release" ]; then
             test "${HAS_RELEASE_SIGNING:-false}" = "true" || {
               echo 'Explicit release build requires all original signing secrets.' >&2; exit 1;
             }

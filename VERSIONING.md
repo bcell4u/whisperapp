@@ -12,7 +12,7 @@ This source targets v6.7.0. Omi NPU remains separately selectable; its underlyin
 
 ## Repository workflow
 
-- The v6.7 integration is built only by manual `workflow_dispatch` in `.github/workflows/build.yml` until an installable APK and on-device behavior are verified; no automatic release publication.
+- The v6.7 integration is built on every branch push via the `push` trigger (always the debug `.dev` APK). Manual `workflow_dispatch` also remains available, and **only explicit manual `build_variant=release`** with the original signing credentials can build the production-package candidate. No automatic release publication or deployment.
 - The workflow validates source, compiles native/Android components, runs JVM tests, and audits the APK. A local source verifier is not an Android build.
 - Use a **Git patch** in GitHub Codespaces or a local clone to update an existing repository. A full source ZIP is appropriate for initial import, disaster recovery, or examining all files.
 - In github.dev, copying the entire extracted source onto an existing project prompts to overwrite every matching filename, whether changed or identical. Use the small changed-files ZIP instead, and manually delete paths listed in its instructions. For deletions, a Git patch via a terminal is simpler.
@@ -102,6 +102,6 @@ Hugging Face downloader with SHA-256 verification. The 0.6B model is shown
 as the only Qwen entry under Advanced Local ASR with a combined download size. The
 legacy 1.7B/transcribe.cpp backend is retired in v6.7; Parakeet, Omi and other independent production features remain.
 No Lab synthetic diagnostics or benchmark UI is included. The workflow is
-manual-only and uploads APKs as Actions artifacts; production deployment must
+push-triggered for debug and manually opt-in for release, and uploads APKs as Actions artifacts; production deployment must
 wait for CI APK build, signer audit, and S26 transcription verification.
 `versionCode=67000`.

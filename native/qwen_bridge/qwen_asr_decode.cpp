@@ -14,10 +14,17 @@
 #include <chrono>
 #include <sys/resource.h>
 #include <sys/auxv.h>
+#if defined(__aarch64__)
+#include <asm/hwcap.h>
+#endif
 #ifndef AT_HWCAP
 #define AT_HWCAP 16
 #endif
-static constexpr unsigned long HWCAP_ASIMDDP = 1UL << 20;
+// Android NDK's <asm/hwcap.h> already defines HWCAP_ASIMDDP as a macro.
+// Declare a fallback only when a platform's headers omit the definition.
+#ifndef HWCAP_ASIMDDP
+#define HWCAP_ASIMDDP (1UL << 20)
+#endif
 static constexpr int AUDIO_FRAMES = 156, WIDTH = 1024, VOCAB_SIZE = 151936;
 static constexpr llama_token PREFIX[] = {151644,8948,198,151645,198,151644,872,198,151669};
 static constexpr llama_token SUFFIX[] = {151670,151645,198,151644,77091,198};

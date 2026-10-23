@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed static audit for the v6.7 Qwen3-ASR 0.6B production integration.
 
-Executed locally and in the manual production Android CI before NDK/Gradle build.
+Executed locally and in automatic push/manual GitHub CI before NDK/Gradle build.
 Only source-level assurances: not a substitute for Android compiler/device checks.
 """
 from pathlib import Path
@@ -19,7 +19,12 @@ downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelD
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
     'version 6.7.0 / 67000': version == {'releaseVersion':'6.7.0','versionName':'6.7.0','versionCode':'67000'},
-    'manual build (no autonomous release)': bool(re.search(r'(?m)^on:\s*\n\s*workflow_dispatch:\s*\n', wf)) and 'Publish GitHub Release' not in wf,
+    'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish GitHub Release' not in wf,
+    'auto build can never select signed production release': all(s in wf for s in (
+        "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release'",
+        "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release' && env.HAS_RELEASE_SIGNING == 'true'",
+        'if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_variant }}" = "release" ]; then')),
+    'NDK HWCAP_ASIMDDP macro collision prevented': all(s in native for s in ('#include <asm/hwcap.h>', '#ifndef HWCAP_ASIMDDP', '#define HWCAP_ASIMDDP (1UL << 20)')) and 'static constexpr unsigned long HWCAP_ASIMDDP' not in native,
     'production package unchanged': 'applicationId = "com.example.whisperrecorder"' in read('app/build.gradle.kts'),
     'native executable staged and audited': all(marker in wf for marker in ('wr-qwen06-decoder', "require_apk_entry 'lib/arm64-v8a/libwrqwen06.so'", 'd81235049384534c167caea52b85a694f6103d14')),
     'legacy 1.7B card and native module removed': 'Qwen3-ASR 1.7B' not in models and 'qwen3-asr-1.7b-q4km' not in models and not (root / 'transcribenative').exists() and not (app / 'advanced/TranscribeCppBackend.kt').exists(),
@@ -45,7 +50,7 @@ checks = {
     'QNN backup recovery is fail-closed': all(token in read('app/src/main/java/com/example/whisperrecorder/qwen/QwenEncoderAssets.kt') for token in ('recoverInterruptedInstall(folder, backup)', 'verify(backup)', 'backup.renameTo(folder)')),
     'cancel before native decode': 'private fun finish(): JSONObject {\n        check(!cancelRequested)' in worker,
     'QNN progress never decreases': 'highestCompletedBytes = maxOf(highestCompletedBytes, estimate)' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
-    'debug side-by-side is default even when signing secrets exist': all(t in wf for t in ('default: debug', "if: inputs.build_variant == 'release'", 'if [ "${{ inputs.build_variant }}" = "release" ]; then'))
+    'debug side-by-side is default even when signing secrets exist': all(t in wf for t in ('default: debug', "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release'", 'if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_variant }}" = "release" ]; then' ))
 }
 for item, ok in checks.items():
     print(('PASS' if ok else 'FAIL') + ' ' + item)

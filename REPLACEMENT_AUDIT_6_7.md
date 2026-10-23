@@ -20,13 +20,13 @@ This revision retains **versionName 6.7.0**, **versionCode 67000**, production a
 ## Checks actually executed
 
 - `scripts/verify-source.sh`: **PASS**, including existing speaker, Parakeet GPU/NPU, Omi GPU/NPU, recording, packaging and UI/source guards.
-- `scripts/audit-qwen-production.py`: **27/27 PASS**, including absence of the native module, old catalog and engine dispatch, APK audit prohibitions, safe preference migration and Qwen06 route.
+- `scripts/audit-qwen-production.py`: **29/29 PASS** (updated in automatic-build/NDK-fix revision), including absence of the native module, old catalog and engine dispatch, APK audit prohibitions, safe preference migration and Qwen06 route.
 - Host Kotlin CLI smoke: **PASS** (retired Qwen engine ID fallback, acceleration policy, Qwen06 segmentation, sample mel dimensions/finiteness, transcript cleanup and overlap stitching).
 - GitHub workflow: YAML parse **PASS**. Android manifest XML parse **PASS**. All scripts: Bash syntax checks **PASS**, Python compile **PASS**.
 - Source verification, ZIP archive CRC check and a patch-vs-pristine-v6.5.22 reconstruction are performed before packaging the final artifacts.
 
 ## Remaining non-negotiable validation
 
-**No Android SDK/NDK, linked Qwen Android native binary, GitHub Actions result, signed APK, or physical S26 device was available in this environment. This is not a verified Android build or proven end-to-end transcription.** GitHub must compile Gradle/AIDL/ORT + pinned llama.cpp, run unit tests/lint, verify the packaged ELF/DEX/APK signature and produce a matching build proof. The PIE executable packaged as `libwrqwen06.so` may be subject to Android execution/SELinux restrictions; only actual S26 SM-S942U testing can verify this arrangement. If blocked, implement supported JNI/library loading rather than chmod/security bypass.
+**GitHub Actions run 108120053894 did execute but stopped while compiling native qwen_asr_decode.cpp due to the HWCAP_ASIMDDP macro name conflict; that source error is corrected in the current revision, not yet retested in CI. No linked Qwen Android native binary, installable APK, or physical S26 test has been verified. This is not a verified Android build or proven end-to-end transcription.** GitHub must compile Gradle/AIDL/ORT + pinned llama.cpp, run unit tests/lint, verify the packaged ELF/DEX/APK signature and produce a matching build proof. The PIE executable packaged as `libwrqwen06.so` may be subject to Android execution/SELinux restrictions; only actual S26 SM-S942U testing can verify this arrangement. If blocked, implement supported JNI/library loading rather than chmod/security bypass.
 
 Use the **debug `.dev` variant first**, beside the installed 6.5.22 production package, and verify model download, Use/Remove, QNN fallback disabled, short/boundary/220-second speech, cancellation, transcript save, playback and all independent production engines. Back up recordings before any future production upgrade. A *post-build* orphan/performance/lint audit cannot be completed until actual CI and device evidence is available.

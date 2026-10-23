@@ -45,7 +45,7 @@ In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
 - `ANDROID_KEY_PASSWORD` - the key-entry password.
 - `ANDROID_SIGNING_CERT_SHA256` - the SHA-256 certificate fingerprint printed by the helper/keytool. Colons are optional.
 
-For the 6.7.0 integration candidate, the workflow runs only when manually triggered from the GitHub Actions page. With all five signing secrets, it creates and audits a permanently signed release APK. Otherwise it uploads a debug APK (`com.example.whisperrecorder.dev`). It does **not** publish a GitHub Release automatically. If the keystore fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, it fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
+For v6.7.0, **every push to any branch automatically builds the side-by-side debug APK** (`com.example.whisperrecorder.dev`), even if all five release-signing secrets exist. A release-package build is only attempted if a user manually runs **Actions → Build Android APK → Run workflow** and explicitly selects `build_variant=release`; all five original signing secrets are mandatory for that build. It does **not** publish a GitHub Release automatically. If the signing-certificate fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the release build fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
 
 ## First install with the permanent key
 

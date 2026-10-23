@@ -1,3 +1,5 @@
+> Historical audit report, written before GitHub run 108120053894. See `AUTO_CI_BUILD_FIX_6_7.md` for the newer ARM64 compiler failure, fix and automatic push-build change.
+
 > ARCHIVED PRE-v6.7 AUDIT: references to `transcribenative` / transcribe.cpp describe the now-removed 1.7B runtime and are not active v6.7 tasks.
 
 # Whisper Recorder v6.3.22 — source audit and targeted remediation

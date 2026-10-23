@@ -28,14 +28,14 @@
 
 ## Source quality / orphan checks
 
-- Source audit checks 27 production Qwen invariants: model card, version, manual workflow, no Lab fixtures, no bundled model weights, removed legacy transcribe.cpp backend, release signing and private IPC. `scripts/verify-source.sh` additionally preserves the original 6.5.22 feature, speaker, Omi and recording guards.
+- Source audit checks the production Qwen invariants: model card, version, automatic push debug workflow with manual release gate, no Lab fixtures, no bundled model weights, removed legacy transcribe.cpp backend, release signing and private IPC. `scripts/verify-source.sh` additionally preserves the original 6.5.22 feature, speaker, Omi and recording guards.
 - C++ CLI syntax checked using an API-shaped header for pinned llama v0.6; standalone Kotlin Qwen mel + transcript cleanup/merge compiled by `kotlinc` together with production `TranscriptCleaner`.
 - Inspected all new Qwen classes for unwanted benchmark/fixture/probe paths, `Log` calls, orphan legacy Qwen Lab functions, implicit model downloads, and accidental model path diagnostics.
 
 ## GitHub build protection / execution caveat
 
 - After the APK build, CI runs Android lint and records its exit code, preserving its log and HTML/XML reports in the build artifact. Lint failures require review before production deployment, even when the APK build itself succeeds.
-- `.github/workflows/build.yml` is now **workflow_dispatch only**, with **debug `.dev` as the explicit default regardless of configured signing secrets** and an opt-in release variant; Android lint follows the selected variant, with no automatic GitHub Release/tag. It stages the pinned llama source at `d81235049384534c167caea52b85a694f6103d14`, cross-compiles one static ARM64 dotprod PIE, stages it as `libwrqwen06.so`, runs JVM tests, builds an APK, audits native/DEX entries, confirms the package/version/signing identity, and uploads the APK plus proof. Other production native dependencies and signing keys are preserved.
+- `.github/workflows/build.yml` now **builds debug `.dev` APKs automatically on every branch push**, with **debug `.dev` as the explicit default regardless of configured signing secrets** and a manual-only opt-in release variant; Android lint follows the selected variant, with no automatic GitHub Release/tag. It stages the pinned llama source at `d81235049384534c167caea52b85a694f6103d14`, cross-compiles one static ARM64 dotprod PIE, stages it as `libwrqwen06.so`, runs JVM tests, builds an APK, audits native/DEX entries, confirms the package/version/signing identity, and uploads the APK plus proof. Other production native dependencies and signing keys are preserved.
 - **No Android SDK/NDK or runner was available in this environment.** The actual Android Gradle/AIDL/native link/build, APK size and install/update behavior are **NOT YET VERIFIED**. The host C++ check used a stub, not real pinned headers. The app-private executable launch/SELinux policy is also **NOT device-qualified**. These are gating risks, not claimed successes.
 - **Do not install a signed 6.7 candidate over 6.5.22 until the GitHub build, checksum, UI, and S26 transcription checks pass and recordings are backed up.** Without production signing secrets, a debug `.dev` APK can be installed alongside the current production app.
 - QNN encoder assets are not bundled: an on-device network download and first-load QNN/HTP EP check is required. The 6.7 S26-specific runtime is not qualified for other Snapdragon or Android devices.
@@ -50,7 +50,7 @@
 
 ## Disposition
 
-**Status: SOURCE-INTEGRATED / ANDROID-CI-BUILD-PENDING / DEVICE-QUALIFICATION-PENDING.** The requested post-build audit is prepared and enforced via GitHub APK checks but cannot honestly be called completed until an APK exists. No model performance or medical WER improvement is asserted solely from synthetic fixtures.
+**Status: SOURCE-INTEGRATED / ANDROID-CI-COMPILE-FAILED-AT-HWCAP (FIX STAGED, RERUN PENDING) / DEVICE-QUALIFICATION-PENDING.** The requested post-build audit is prepared and enforced via GitHub APK checks but cannot honestly be called completed until an APK exists. No model performance or medical WER improvement is asserted solely from synthetic fixtures.
 
 ## 2026-10-22 source re-audit refinements (Android CI still pending)
 
@@ -59,7 +59,7 @@
 - `QwenEncoderAssets` now recovers a verified `.previous` context after interruption between staging and commit instead of deleting the only good backup, and fingerprints the absolute location as well as size/mtime.
 - Added cancellation gates after QNN execution and before starting the decoder subprocess.
 - Model-download progress is monotonic across encoder context/tokenizer/decoder stage messages rather than jumping backward.
-- GitHub manual workflow now defaults to a safe `.dev` debug APK even when production signing secrets are configured; an explicit `release` choice is needed to build the production package.
+- GitHub push workflow automatically builds a safe `.dev` debug APK even when production signing secrets are configured; an explicit manual `release` choice is required for a production-package candidate.
 - Expanded the Qwen static source audit to 27 checks, including recovery, cancellation, UI qualifier, auto-selection and safe default variant. Downloader SHA-256 is required, and generated decoder/llama checkouts are ignored by Git.
 - Host `kotlinc` smoke tested mel output shape/finiteness, protocol cleanup, conservative seam stitching, and 240-second planning, without testing Android ORT/QNN.
 

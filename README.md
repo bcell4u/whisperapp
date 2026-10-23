@@ -6,10 +6,14 @@ QNN encoder and the pinned llama.cpp ARM64 dotprod decoder. The previous
 Qwen3-ASR 1.7B/transcribe.cpp backend has been removed; independent Whisper,
 Parakeet and Omi engines remain available.
 
-**Build status:** source-level checks only; GitHub Actions manual build and
-on-device smoke tests are required before declaring production-ready.
-**Trigger:** Actions → Build Android APK → Run workflow. 6.7 intentionally
-does not publish an automatic GitHub Release.
+**Build status:** source gates passed in run 108120053894, but the native
+ARM64 build failed due to an NDK `HWCAP_ASIMDDP` macro clash. This source
+revision fixes that error; successful subsequent Android compilation and S26
+smoke testing remain unverified.
+**Trigger:** every Git push to any branch automatically starts a debug `.dev`
+APK build in GitHub Actions. **Actions → Build Android APK → Run workflow**
+remains available for a manual debug build or explicitly selected signed
+release candidate. The workflow never publishes an automatic GitHub Release.
 
 # WhisperRecorder
 

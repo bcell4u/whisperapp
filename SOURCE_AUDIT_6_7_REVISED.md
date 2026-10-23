@@ -1,3 +1,5 @@
+> Earlier source-only audit. GitHub build run 108120053894 subsequently failed at the decoder C++ HWCAP macro collision. See `AUTO_CI_BUILD_FIX_6_7.md` for the corrective source update; no APK has yet been verified.
+
 # WhisperRecorder v6.7.0 — revised source audit and Android build gate
 
 ## Deliverable and provenance
@@ -31,7 +33,7 @@ No Android SDK/NDK or access to the user's GitHub Actions runner was available. 
 ## CI and device proof required before installation
 
 1. Push the complete source into a separate test branch, removing any old files omitted from this archive in Git rather than simply overlaying a ZIP.
-2. In **Actions → Build Android APK → Run workflow** choose the default **debug**. Inspect the native build, unit tests, Gradle/AIDL compilation, Android lint and packaged APK proof. Do not select release initially.
+2. Push the updated source to a branch to trigger an automatic **debug `.dev`** build in GitHub Actions (or use **Actions → Build Android APK → Run workflow** manually with the default **debug**). Inspect native build, unit tests, Gradle/AIDL compilation, lint and packaged APK proof. Do not select release initially.
 3. Verify the produced `.dev` ID (`com.example.whisperrecorder.dev`), code 67000, name `6.7.0-dev`, signer fingerprint, source hash, and packaged native ELF/DEX assets; no model files should be embedded.
 4. Install `.dev` beside the original production app on S26 SM-S942U. Test the 0.6B card and both downloads with checksum verification, retired 1.7B model absence, cancel/failure retry, and Remove without deleting other models. Confirm real QNN/HTP with CPU fallback disabled.
 5. Transcribe short, boundary-crossing and ~220-second lecture samples, check actual latency, RSS, speech quality, transcript saving, service lifecycle, and cleanup. Confirm existing production recording, playback, storage, diarization, Parakeet, Omi and Whisper regressions do not appear.
