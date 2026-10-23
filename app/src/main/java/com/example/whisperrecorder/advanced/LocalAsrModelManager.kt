@@ -70,17 +70,17 @@ object LocalAsrModelManager {
             licenseName = "CC BY 4.0 • OpenCL GPU automatic"
         ),
         LocalAsrModel(
-            id = "qwen3-asr-1.7b-q4km",
-            engine = AsrEngine.QWEN3,
-            name = "Qwen3-ASR 1.7B",
-            fileName = "Qwen3-ASR-1.7B-Q4_K_M.gguf",
-            url = "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/main/Qwen3-ASR-1.7B-Q4_K_M.gguf?download=true",
-            expectedBytes = 1_319_830_496L,
-            sha256 = "b7afe3674f653fa84f712ed2440353c6e7cf7f93697fef76b05a26538b24844e",
-            sizeLabel = "~1.32 GB",
+            id = "qwen3-asr-0.6b-q8",
+            engine = AsrEngine.QWEN06,
+            name = "Qwen3-ASR 0.6B · QNN + llama.cpp Q8_0",
+            fileName = "Qwen3-ASR-0.6B-Q8_0.gguf",
+            url = "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/928ab95/Qwen3-ASR-0.6B-Q8_0.gguf",
+            expectedBytes = 804_749_248L,
+            sha256 = "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971",
+            sizeLabel = "~1.20 GB total · 805 MB Q8_0 + ~391 MB QNN encoder",
             languageCount = 30,
-            modelInfoUrl = "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf",
-            licenseName = "Apache 2.0"
+            modelInfoUrl = "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
+            licenseName = "Apache 2.0 · QNN/HTP: S26 SM-S942U only"
         )
     )
 
@@ -149,6 +149,11 @@ object LocalAsrModelManager {
     }
 
     fun isInstalled(context: Context, model: LocalAsrModel): Boolean {
+        if (model.engine == AsrEngine.QWEN06) {
+            // The UI must never allow selecting only the GGUF; QNN is mandatory.
+            return com.example.whisperrecorder.qwen.QwenEncoderAssets.valid(context) &&
+                com.example.whisperrecorder.qwen.QwenModelDownloader.officialDecoderPresent(context)
+        }
         val file = modelFile(context, model)
         if (!file.isFile) return false
         model.expectedBytes?.let { return file.length() == it }
@@ -289,6 +294,12 @@ object LocalAsrModelManager {
         val persistentOk = runCatching {
             ModelFileOps.deletePersistentDocuments(context, persistentName(model))
         }.getOrDefault(false)
+        // Qwen 0.6B is a two-component model. Remove only its own QNN encoder
+        // after the associated decoder is removed, never sibling model assets.
+        val encoderOk = if (model.engine == AsrEngine.QWEN06 && localOk) {
+            val encoderDir = com.example.whisperrecorder.qwen.QwenEncoderAssets.directory(context)
+            !encoderDir.exists() || encoderDir.deleteRecursively()
+        } else true
 
         if (AppPrefs.getTranscriptionEngine(context) == model.engine.id && !isInstalled(context, model)) {
             if (!AppPrefs.hasExplicitTranscriptionEngine(context)) {
@@ -298,6 +309,6 @@ object LocalAsrModelManager {
                 AppPrefs.setModelPath(context, null)
             }
         }
-        return localOk && persistentOk
+        return localOk && persistentOk && encoderOk
     }
 }

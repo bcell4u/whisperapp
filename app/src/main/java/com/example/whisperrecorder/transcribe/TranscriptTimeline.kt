@@ -354,7 +354,7 @@ object TranscriptTimelineBuilder {
 
 
     /**
-     * Qwen3-ASR does not expose timestamps in transcribe.cpp v0.1.3. Build short display
+     * Qwen3-ASR 0.6B currently returns no native word timestamps. Build short display
      * phrases and place them over speech-active PCM frames instead of stretching text uniformly
      * across the whole inference slice. This remains an estimate, but real silence no longer
      * consumes the same share of the timeline as spoken audio.

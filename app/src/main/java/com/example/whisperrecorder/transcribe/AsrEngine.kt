@@ -7,14 +7,14 @@ enum class AsrEngine(val id: String) {
     PARAKEET_NPU("parakeet_npu"),
     OMI_NPU("omi_npu"),
     OMI("omi"),
-    QWEN3("qwen3");
+    QWEN06("qwen3_06");
 
     val usesBoundaryOverlap: Boolean get() = this != WHISPER
-    val supportsConfigurableThreads: Boolean get() = this != OMI && this != PARAKEET && this != PARAKEET_NPU && this != OMI_NPU
+    val supportsConfigurableThreads: Boolean get() = this != OMI && this != PARAKEET && this != PARAKEET_NPU && this != OMI_NPU && this != QWEN06
 
     fun resolveLanguage(requestedLanguage: String, whisperEnglishOnly: Boolean = false): String = when (this) {
         PARAKEET, PARAKEET_NPU -> requestedLanguage.takeUnless { it == "auto" }.orEmpty().ifBlank { "en" }
-        QWEN3 -> "auto"
+        QWEN06 -> "auto"
         OMI, OMI_NPU -> "en"
         WHISPER -> if (whisperEnglishOnly) "en" else requestedLanguage
     }

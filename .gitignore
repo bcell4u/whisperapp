@@ -6,11 +6,16 @@ local.properties
 *.p12
 *.pem
 *.key
+
+# Cached FetchContent sources used to shorten native CI builds
 .native-deps/
+
+# Python verification cache files
 __pycache__/
 *.pyc
-# Only CI builds the pinned ARM64 CLI and copies the ELF into jniLibs.
-/build-qwen-bridge/
-/app/src/main/jniLibs/arm64-v8a/libwrqwengguflab.so
-/app/libs/sherpa-onnx-1.13.8.aar
-/artifact/
+
+# Pinned llama source and ARM64 decoder are materialized by GitHub Actions.
+# Never accidentally commit an unchecked third-party checkout or compiled ELF.
+native/qwen_bridge/llama.cpp/
+build-qwen06/
+app/src/main/jniLibs/arm64-v8a/libwrqwen06.so

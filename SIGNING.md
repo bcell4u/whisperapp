@@ -45,7 +45,7 @@ In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
 - `ANDROID_KEY_PASSWORD` - the key-entry password.
 - `ANDROID_SIGNING_CERT_SHA256` - the SHA-256 certificate fingerprint printed by the helper/keytool. Colons are optional.
 
-When all five signing secrets are present, non-PR builds verify the permanent key and produce a signed release APK. A signed build from `main` is published to the stable version tag. When the signing secrets are not configured, CI falls back to a debug APK so normal development builds can still complete; successful pushes to `main` and manual workflow runs are published to GitHub Releases as uniquely tagged prereleases. Manual runs from non-`main` refs are also published as prereleases even when signed. If signing secrets are present but the keystore fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the build fails rather than signing with an unexpected key. Pull requests always use a debug APK and are not published to Releases.
+For the 6.7.0 integration candidate, the workflow runs only when manually triggered from the GitHub Actions page. With all five signing secrets, it creates and audits a permanently signed release APK. Otherwise it uploads a debug APK (`com.example.whisperrecorder.dev`). It does **not** publish a GitHub Release automatically. If the keystore fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, it fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
 
 ## First install with the permanent key
 
@@ -55,15 +55,16 @@ The application package must remain `com.example.whisperrecorder` and the perman
 
 ## Release behavior
 
-On successful pushes to `main` with the permanent signing secrets configured, GitHub Actions:
+When the 6.7.0 workflow is manually dispatched with permanent signing secrets configured, GitHub Actions:
 
 - reconstructs the keystore only inside the temporary runner;
 - verifies the keystore certificate against the pinned SHA-256 fingerprint secret;
 - runs `assembleRelease` with the permanent signing configuration;
 - verifies the completed APK with Android `apksigner` and checks the certificate again;
 - records the signer fingerprint in `build-proof.txt`;
-- uploads the signed APK as an Actions artifact; and
-- attaches the same signed APK to the matching GitHub Release.
+- uploads the signed APK as an Actions artifact.
+
+No GitHub Release or stable tag is created automatically for 6.7.0.
 
 The private keystore is never committed to the repository or uploaded as a build artifact.
 

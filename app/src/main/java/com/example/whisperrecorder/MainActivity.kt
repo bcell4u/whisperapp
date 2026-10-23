@@ -1452,7 +1452,7 @@ class MainActivity : ComponentActivity() {
                         engine == "parakeet" && LocalAsrModelManager.byEngine(engine)?.let { LocalAsrModelManager.isInstalled(this@MainActivity, it) } == true -> "${ModelManager.whisperLanguages[pref.takeUnless { it == "auto" } ?: "en"] ?: "English"} • 25 European languages"
                         engine == "parakeet" -> "Parakeet files are incomplete • restore or reinstall"
                         localModel != null && !LocalAsrModelManager.isInstalled(this@MainActivity, localModel) -> "${localModel.name} is incomplete • restore or reinstall"
-                        engine == "qwen3" -> "Auto-detect • 30 languages"
+                        engine == "qwen3_06" -> "Auto-detect • 30 languages"
                         engine == "omi" -> "English • medical-domain • OpenCL GPU automatic"
                         selectedFile == null -> "Choose a model first"
                         ModelManager.isEnglishOnly(selectedFile) -> "English • imported model is English-only"

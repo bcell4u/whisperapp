@@ -92,6 +92,16 @@ object AppPrefs {
         // Upgrade compatibility: the retired Parakeet 1.1B engine used this persisted ID.
         // Map only the preference; model availability is still resolved independently.
         if (saved == "parakeet11") return AsrEngine.PARAKEET.id
+        if (saved == "qwen3") {
+            // v6.7 removes the 1.7B transcribe backend. Never hand its stale
+            // GGUF path to Whisper; let inventory choose an installed backend.
+            prefs(context).edit()
+                .remove(KEY_TRANSCRIPTION_ENGINE)
+                .remove(KEY_MODEL)
+                .putBoolean(KEY_AUTOMATIC_ENGINE, true)
+                .apply()
+            return AsrEngine.WHISPER.id
+        }
         return AsrEngine.fromId(saved).id
     }
 

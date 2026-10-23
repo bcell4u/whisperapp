@@ -1,14 +1,10 @@
 package com.example.whisperrecorder.npu
 
-import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.*
 
 /** CPU preprocessing port of pinned exporter src/mel.py at 4aee2ae0.
  * 16 kHz mono, reflect-centered torch.stft 400/160, periodic Hann, Slaney 128 mel,
  * float32 power -> log10 clamp -> -8 floor -> (x+4)/4, final frame dropped.
- * The package's synthetic golden vectors MUST pass before invoking the NPU.
  */
 internal object Qwen3Mel {
     const val SAMPLES = 192000
@@ -87,29 +83,4 @@ internal object Qwen3Mel {
         return mel
     }
 
-    data class Parity(val maxAbs: Double, val rmse: Double, val pass: Boolean)
-
-    /** Compare against public deterministic fixture; never logs source PCM or transcripts. */
-    fun verifyGolden(folder: File, cancelled: () -> Boolean = { false }): Parity {
-        val pcm = readFloat(File(folder, "golden-synthetic-pcm-12s-f32.raw"), SAMPLES)
-        val reference = readFloat(File(folder, "golden-synthetic-mel-12s-f32.raw"), BINS * FRAMES)
-        val actual = compute(pcm, cancelled)
-        var peak = 0.0
-        var sumSq = 0.0
-        for (i in reference.indices) {
-            val difference = abs(actual[i].toDouble() - reference[i].toDouble())
-            peak = max(peak, difference)
-            sumSq += difference * difference
-        }
-        val rmse = sqrt(sumSq / reference.size)
-        return Parity(peak, rmse, peak <= 3e-4 && rmse <= 3e-5)
-    }
-
-    private fun readFloat(file: File, count: Int): FloatArray {
-        require(file.isFile && file.length() == count * 4L) { "Missing Qwen golden fixture: ${file.name}" }
-        val buffer = ByteBuffer.wrap(file.readBytes()).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-        val result = FloatArray(count)
-        buffer.get(result)
-        return result
-    }
 }

@@ -118,74 +118,6 @@ class TranscriptionService : Service() {
         val preparationError: String? = null
     )
 
-    private fun isQwenOutputTruncation(error: Throwable): Boolean {
-        val message = error.message?.lowercase().orEmpty()
-        return message.contains("output truncated") ||
-            message.contains("generation cap") ||
-            message.contains("before end-of-stream")
-    }
-
-    /**
-     * Qwen can exhaust its text-generation budget on unusually dense speech even when the audio
-     * itself fits the model context. Retry only that specific failure as smaller overlapping slices
-     * so one dense segment does not discard the entire recording. The overlap is cleaned by the same
-     * transcript boundary de-duplication used between normal app segments.
-     */
-    private suspend fun transcribeWithAdaptiveQwenRetry(
-        session: AsrSession,
-        engine: AsrEngine,
-        samples: FloatArray,
-        language: String,
-        threads: Int,
-        baseSampleOffset: Int = 0,
-        retryDepth: Int = 0
-    ): List<InferenceSlice> {
-        currentCoroutineContext().ensureActive()
-        try {
-            return listOf(
-                InferenceSlice(
-                    recognition = withForegroundInferencePriority { session.transcribe(samples, language, threads) },
-                    startSample = baseSampleOffset,
-                    endSample = baseSampleOffset + samples.size
-                )
-            )
-        } catch (error: IllegalStateException) {
-            val minimumRetrySamples = 15 * 16_000
-            if (engine != AsrEngine.QWEN3 || !isQwenOutputTruncation(error) || samples.size <= minimumRetrySamples) {
-                throw error
-            }
-
-            val overlapSamples = 16_000 // 1 second protects words crossing the retry boundary.
-            val midpoint = samples.size / 2
-            val firstEnd = (midpoint + overlapSamples).coerceAtMost(samples.size)
-            val secondStart = (midpoint - overlapSamples).coerceAtLeast(0)
-            DiagnosticLogger.append(
-                this,
-                "qwen adaptive retry depth=$retryDepth samples=${samples.size} firstSamples=$firstEnd secondSamples=${samples.size - secondStart} reason=${error.message}"
-            )
-
-            val first = samples.copyOfRange(0, firstEnd)
-            val second = samples.copyOfRange(secondStart, samples.size)
-            return transcribeWithAdaptiveQwenRetry(
-                session = session,
-                engine = engine,
-                samples = first,
-                language = language,
-                threads = threads,
-                baseSampleOffset = baseSampleOffset,
-                retryDepth = retryDepth + 1
-            ) + transcribeWithAdaptiveQwenRetry(
-                session = session,
-                engine = engine,
-                samples = second,
-                language = language,
-                threads = threads,
-                baseSampleOffset = baseSampleOffset + secondStart,
-                retryDepth = retryDepth + 1
-            )
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -276,7 +208,7 @@ class TranscriptionService : Service() {
                 stage = "Preparing media", detail = "Starting transcription", startedAtMs = sessionStarted
             )
         )
-        DiagnosticLogger.append(this, "SESSION start recording=${request.id} title=${request.title} engine=${request.engine.id} model=$modelName durationMs=${request.durationMs}")
+        DiagnosticLogger.append(this, "SESSION start engine=${request.engine.id} durationMs=${request.durationMs}")
         startForeground(NOTIFICATION_ID, workingNotification("Preparing media…", progress = null))
         acquireTranscriptionWakeLock()
 
@@ -312,7 +244,7 @@ class TranscriptionService : Service() {
                 }
 
                 updateStage(request.id, "Preparing media", "Inspecting source audio track", modelName, request.durationMs)
-                DiagnosticLogger.append(this@TranscriptionService, "media inspect start uri=${request.mediaUri}")
+                DiagnosticLogger.append(this@TranscriptionService, "media inspect start")
                 preparedSource = try {
                     PcmDecoder.prepare(this@TranscriptionService, request.mediaUri)
                 } catch (t: Throwable) {
@@ -344,7 +276,7 @@ class TranscriptionService : Service() {
                     "media stream ready sampleRate=${streamInfo.sampleRate} channels=${streamInfo.channelCount} trackMime=${streamInfo.trackMime} audioStartMs=${streamInfo.audioStartMs} audioDurationMs=$audioDurationMs noFullPcmStaging=true"
                 )
                 updateStage(request.id, "Loading model", "Loading $modelName", modelName, total, totalChunks = totalChunks)
-                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id} path=${if (request.engine == AsrEngine.PARAKEET_NPU) NpuPackageStore.TRANSCRIPTION_MODEL_KEY else if (request.engine == AsrEngine.OMI_NPU) OmiNpuPackageStore.TRANSCRIPTION_MODEL_KEY else request.modelPath} sizeBytes=${if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU) 0L else File(request.modelPath).length()}")
+                DiagnosticLogger.append(this@TranscriptionService, "model acquire start engine=${request.engine.id}")
                 val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
                 val configuredThreads = AppPrefs.effectiveTranscriptionThreads(this@TranscriptionService, cores)
                 val threads = if (request.engine.supportsConfigurableThreads) configuredThreads else 0
@@ -505,12 +437,15 @@ class TranscriptionService : Service() {
                                     )
                                 )
                             } else {
-                                transcribeWithAdaptiveQwenRetry(
-                                    session = session,
-                                    engine = request.engine,
-                                    samples = samples,
-                                    language = language,
-                                    threads = threads
+                                currentCoroutineContext().ensureActive()
+                                listOf(
+                                    InferenceSlice(
+                                        recognition = withForegroundInferencePriority {
+                                            session.transcribe(samples, language, threads)
+                                        },
+                                        startSample = 0,
+                                        endSample = samples.size
+                                    )
                                 )
                             }
                         } finally {
@@ -593,7 +528,7 @@ class TranscriptionService : Service() {
                             }
                             if (cleanup.text.isNotBlank()) {
                                 val cueFloor = maxOf(sliceStartMs, lastProcessedAudioEndMs).coerceAtMost(sliceEndMs)
-                                val mayNeedSpeechTiming = request.engine == AsrEngine.QWEN3 ||
+                                val mayNeedSpeechTiming = request.engine == AsrEngine.QWEN06 ||
                                     request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU
                                 val cueResult = TranscriptTimelineBuilder.cuesForChunkDetailed(
                                     cleanedText = cleanup.text,
@@ -601,8 +536,7 @@ class TranscriptionService : Service() {
                                     chunkEndMs = sliceEndMs,
                                     // Use native Parakeet NPU words when valid. If cleanup changed
                                     // them, fall back to speech-active PCM rather than uniform timing.
-                                    nativeSegments = if (request.engine == AsrEngine.QWEN3)
-                                        emptyList() else slice.recognition.timedSegments,
+                                    nativeSegments = slice.recognition.timedSegments,
                                     wordByWord = request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU,
                                     minimumStartMs = cueFloor,
                                     speechSamples = if (mayNeedSpeechTiming) samples else null,
@@ -712,7 +646,7 @@ class TranscriptionService : Service() {
                 if (previousTimingPath != null && previousTimingPath != timingPath) {
                     TranscriptTimelineStore.delete(previousTimingPath)
                 }
-                DiagnosticLogger.append(this@TranscriptionService, "save transcript complete elapsedMs=$saveElapsedMs uri=$transcriptUri cues=${timelineCues.size}")
+                DiagnosticLogger.append(this@TranscriptionService, "save transcript complete elapsedMs=$saveElapsedMs cues=${timelineCues.size}")
                 previousTranscriptUri
                     ?.takeIf { it != transcriptUri.toString() }
                     ?.let { SafStorage.deleteDocument(this@TranscriptionService, Uri.parse(it)) }
@@ -762,7 +696,7 @@ class TranscriptionService : Service() {
                     val content = "[INCOMPLETE TRANSCRIPT: transcription stopped before the recording ended]\n\n" +
                         partialTranscript.toString().trim()
                     val uri = SafStorage.writeTextToDirectory(this@TranscriptionService, dir, name, content)
-                    DiagnosticLogger.append(this@TranscriptionService, "SESSION partial transcript saved uri=$uri chars=${partialTranscript.length}")
+                    DiagnosticLogger.append(this@TranscriptionService, "SESSION partial transcript saved chars=${partialTranscript.length}")
                     true
                 }.onFailure {
                     DiagnosticLogger.appendError(this@TranscriptionService, "SESSION partial transcript save failed", it)

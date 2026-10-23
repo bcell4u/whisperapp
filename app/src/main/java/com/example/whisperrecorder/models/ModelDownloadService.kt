@@ -82,6 +82,33 @@ class ModelDownloadService : Service() {
     }
 
     private fun resolveTarget(modelId: String): DownloadTarget? {
+        if (modelId == "qwen3-asr-0.6b-q8") {
+            return DownloadTarget(modelId, "Qwen3-ASR 0.6B QNN + Q8_0", 1_196_000_000L) { progress, _, _, cancelled ->
+                // Encoder manifest and tokenizer messages may reset their stage counter.
+                // Keep one monotonic progress indicator while files are downloaded in order.
+                var highestCompletedBytes = 0L
+                com.example.whisperrecorder.qwen.QwenModelDownloader.downloadMissing(
+                    this, cancelled
+                ) { text ->
+                    // Combined progress is approximate until the QNN manifest is parsed;
+                    // never expose URLs, paths, prompts, or token content.
+                    val decoderBase = 391_000_000L
+                    val totalBytes = 1_196_000_000L
+                    val groups = Regex("""(\d+) / (\d+) MB""").find(text)?.groupValues
+                    val stageBytes = groups?.getOrNull(1)?.toLongOrNull()?.times(1_000_000L) ?: 0L
+                    val isDecoder = text.contains("GGUF decoder", ignoreCase = true) ||
+                        text.contains("Q8 GGUF", ignoreCase = true)
+                    val estimate = (if (isDecoder) decoderBase + stageBytes else stageBytes)
+                        .coerceIn(0L, totalBytes - 1L)
+                    highestCompletedBytes = maxOf(highestCompletedBytes, estimate)
+                    val done = highestCompletedBytes
+                    val percent = (done * 100L / totalBytes).toInt().coerceIn(0, 99)
+                    progress(percent, done, totalBytes, text.take(120))
+                }
+                progress(100, 1_196_000_000L, 1_196_000_000L, "Qwen3-ASR 0.6B verified")
+                com.example.whisperrecorder.qwen.QwenModelDownloader.decoder(this).absolutePath
+            }
+        }
         LocalAsrModelManager.byId(modelId)?.let { model ->
             return DownloadTarget(model.id, model.name, model.expectedBytes ?: 0L) { progress, verify, archive, cancelled ->
                 LocalAsrModelManager.download(this, model, progress, verify, archive, cancelled).absolutePath

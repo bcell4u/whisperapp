@@ -9,7 +9,7 @@ class AccelerationPolicyTest {
         assertEquals(AccelerationTier.NPU, AccelerationPolicy.tier(AsrEngine.PARAKEET_NPU))
         assertEquals(AccelerationTier.GPU, AccelerationPolicy.tier(AsrEngine.PARAKEET))
         assertEquals(AccelerationTier.GPU, AccelerationPolicy.tier(AsrEngine.OMI))
-        assertEquals(AccelerationTier.CPU, AccelerationPolicy.tier(AsrEngine.QWEN3))
+        assertEquals(AccelerationTier.NPU, AccelerationPolicy.tier(AsrEngine.QWEN06))
         assertEquals(AccelerationTier.CPU, AccelerationPolicy.tier(AsrEngine.WHISPER))
     }
 
@@ -17,9 +17,10 @@ class AccelerationPolicyTest {
         val all = AsrEngine.entries.toSet()
         assertEquals(AsrEngine.PARAKEET_NPU, AccelerationPolicy.preferredAvailable(all))
         assertEquals(AsrEngine.PARAKEET, AccelerationPolicy.preferredAvailable(all - AsrEngine.PARAKEET_NPU))
-        assertEquals(AsrEngine.OMI, AccelerationPolicy.preferredAvailable(setOf(AsrEngine.OMI, AsrEngine.QWEN3)))
-        assertEquals(AsrEngine.QWEN3, AccelerationPolicy.preferredAvailable(setOf(AsrEngine.QWEN3, AsrEngine.WHISPER)))
+        assertEquals(AsrEngine.OMI, AccelerationPolicy.preferredAvailable(setOf(AsrEngine.OMI, AsrEngine.WHISPER)))
         assertEquals(AsrEngine.WHISPER, AccelerationPolicy.preferredAvailable(setOf(AsrEngine.WHISPER)))
+        assertNull(AccelerationPolicy.preferredAvailable(setOf(AsrEngine.QWEN06)))
         assertNull(AccelerationPolicy.preferredAvailable(emptySet()))
+        assertEquals(AsrEngine.WHISPER, AsrEngine.fromId("qwen3"))
     }
 }

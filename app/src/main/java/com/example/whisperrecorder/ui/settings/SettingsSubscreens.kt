@@ -79,7 +79,7 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
     val localInstalled = localModel?.let { LocalAsrModelManager.isInstalled(context, it) } == true
     val englishOnly = selectedFile?.let(ModelManager::isEnglishOnly) == true
     val lockedEnglish = engine == "omi" || engine == "omi_npu"
-    val automatic = engine == "qwen3"
+    val automatic = engine == "qwen3_06"
     val parakeetMultilingual = engine == "parakeet" || engine == "parakeet_npu"
     val npuReady = engine == "parakeet_npu" && NpuPackageStore.archiveState(context) == NpuArchiveState.READY
     val omiNpuReady = engine == "omi_npu" && OmiNpuPackageStore.archiveState(context) == NpuArchiveState.READY
@@ -125,7 +125,7 @@ internal fun LanguageSettingsScreen(onBack: () -> Unit) {
         !modelReady && engine == "parakeet" -> "Parakeet model files are incomplete. Restore or reinstall Parakeet in Models & downloads."
         !modelReady && localModel != null -> "${localModel.name} is incomplete. Restore or reinstall it in Models & downloads."
         engine == "parakeet" || engine == "parakeet_npu" -> "Parakeet TDT 0.6B v3 supports 25 European languages. Select the spoken language for this model."
-        engine == "qwen3" -> "Qwen3-ASR 1.7B automatically detects among its supported languages."
+        engine == "qwen3_06" -> "Qwen3-ASR 0.6B (QNN encoder + llama.cpp) automatically detects among 30 supported languages."
         engine == "omi_npu" -> "Omi Med NPU supports English. Review medical terms and doses; encoder numerical qualification is not complete."
         engine == "omi" -> "Omi Med STT v1 Q8_0 is an English medical-domain model and automatically uses the shared parakeet.cpp OpenCL/Adreno runtime."
         selectedFile == null -> "Select a Whisper model before choosing a language."
@@ -290,7 +290,7 @@ internal fun PerformanceSettingsScreen(onBack: () -> Unit) {
                             } else {
                                 Text("This device exposes one CPU core, so supported engines use one worker thread.", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text("This thread count applies to Whisper and Qwen3-ASR. NVIDIA Parakeet GPU and Omi Med use the runtime-managed OpenCL/Adreno worker; Qualcomm NPU uses ORT-QNN/HTP and ignores this CPU thread setting. More CPU threads can be faster for supported CPU engines, but mobile scaling is not linear and Max can increase heat or reduce sustained speed through thermal throttling.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("This thread count applies to Whisper. Qwen3-ASR 0.6B uses four fixed llama.cpp decoder threads and a Qualcomm NPU encoder. NVIDIA Parakeet GPU and Omi Med use the runtime-managed OpenCL/Adreno worker; Qualcomm NPU engines ignore this CPU thread setting. More CPU threads can be faster for supported CPU engines, but mobile scaling is not linear and Max can increase heat or reduce sustained speed through thermal throttling.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

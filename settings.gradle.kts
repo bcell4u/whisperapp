@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "WhisperRecorder"
-include(":app", ":transcribenative", ":parakeetnative")
+include(":app", ":parakeetnative")

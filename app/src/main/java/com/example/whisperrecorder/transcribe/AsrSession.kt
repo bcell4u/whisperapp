@@ -9,7 +9,6 @@ import com.example.whisperrecorder.npu.NpuRuntimeException
 import org.json.JSONObject
 import java.nio.ByteOrder
 import com.example.whisperrecorder.advanced.ParakeetCppBackend
-import com.example.whisperrecorder.advanced.TranscribeCppBackend
 import com.example.whisperrecorder.gpu.ParakeetOpenClProcessClient
 
 internal data class AsrRecognition(
@@ -41,7 +40,7 @@ internal object AsrSessionFactory {
         AsrEngine.PARAKEET, AsrEngine.OMI -> ParakeetOpenClSession(context, modelPath)
         AsrEngine.PARAKEET_NPU -> NpuParakeetSession(context)
         AsrEngine.OMI_NPU -> OmiNpuSession(context)
-        AsrEngine.QWEN3 -> TranscribeCppSession(modelPath, threads)
+        AsrEngine.QWEN06 -> Qwen06Session(context)
     }
 }
 
@@ -338,22 +337,4 @@ private class WhisperSession(modelPath: String) : AsrSession {
         handle = 0L
         if (current != 0L) WhisperBridge.freeContext(current)
     }
-}
-
-
-private class TranscribeCppSession(modelPath: String, threads: Int) : AsrSession {
-    private val backend = TranscribeCppBackend.open(modelPath, threads)
-    override val nativeInfo: String = "transcribe.cpp ${TranscribeCppBackend.version()} cpu"
-
-    override fun transcribe(samples: FloatArray, language: String, threads: Int): AsrRecognition {
-        val result = backend.transcribe(samples, language)
-        return AsrRecognition(
-            text = result.text,
-            timedSegments = result.timedSegments,
-            diagnostics = " tokens=${result.tokenCount} timedSegments=${result.timedSegments.size} detectedLanguage=${result.detectedLanguage.ifBlank { "unknown" }}"
-        )
-    }
-
-    override fun cancel() = backend.cancel()
-    override fun close() = backend.close()
 }

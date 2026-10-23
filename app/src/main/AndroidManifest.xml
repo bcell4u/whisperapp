@@ -10,12 +10,12 @@
     <!-- Qualcomm/vendor OpenCL runtime used by the production Parakeet-family worker. -->
 
     <application
-        android:allowBackup="false"
-        android:fullBackupContent="false"
-        android:dataExtractionRules="@xml/lab_data_extraction_rules"
-        android:label="Qwen GGUF Lab"
-        android:icon="@drawable/ic_qwen_gguf_lab"
-        android:roundIcon="@drawable/ic_qwen_gguf_lab"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.WhisperRecorder"
         android:usesCleartextTraffic="false">
         <uses-native-library
@@ -27,7 +27,12 @@
             android:required="false" />
         <activity
             android:name=".MainActivity"
-            android:exported="false" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -65,23 +70,14 @@
             android:process=":opencl"
             android:stopWithTask="false" />
         <service
+            android:name=".qwen.Qwen3HybridWorkerService"
+            android:exported="false"
+            android:process=":qwen06"
+            android:stopWithTask="true" />
+        <service
             android:name=".npu.NpuRuntimeWorkerService"
             android:exported="false"
             android:process=":npu"
             android:stopWithTask="true" />
-        <service
-            android:name=".qwen.Qwen3HybridWorkerService"
-            android:exported="false"
-            android:process=":qwenlab"
-            android:stopWithTask="true" />
-        <activity
-            android:name=".qwen.QwenGgufLabActivity"
-            android:exported="true"
-            android:label="Qwen GGUF Lab">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
     </application>
 </manifest>

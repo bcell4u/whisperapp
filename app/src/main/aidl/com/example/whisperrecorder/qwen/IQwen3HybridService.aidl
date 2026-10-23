@@ -1,10 +1,9 @@
 package com.example.whisperrecorder.qwen;
 import android.os.SharedMemory;
 interface IQwen3HybridService {
-    String prepareGgufLab(String configJson);
-    String encodeGgufLab(in SharedMemory pcm, int sampleCount);
-    String finishGgufLab();
-    String verifyDecoderFixture();
+    String prepare(String configJson);
+    String encode(in SharedMemory pcm, int sampleCount);
+    String finish();
     void cancelCurrent();
     void closeRuntime();
 }

@@ -33,6 +33,9 @@ object ModelInventoryLoader {
         }
         val documents = archive?.documents.orEmpty()
         val localInstalledIds = LocalAsrModelManager.installedIds(context)
+        // Migrate a removed Qwen 1.7B preference before checking whether a model
+        // was explicitly selected; otherwise the first refresh can remain empty.
+        AppPrefs.getTranscriptionEngine(context)
         // Only choose an acceleration default if the user has never selected a model.
         // Resolve availability on Dispatchers.IO; NPU archive checks may access SAF storage.
         if (!AppPrefs.hasExplicitTranscriptionEngine(context)) {

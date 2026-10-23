@@ -1,4 +1,4 @@
-Whisper Recorder v6.3.9 local ASR notices
+Whisper Recorder v6.7.0 local ASR notices
 
 Model weights are NOT bundled with the application. They are downloaded only after the user chooses a model.
 
@@ -18,10 +18,12 @@ Omi Med STT v1 (0.6B)
 - Omi Q8_0 uses the same patched parakeet.cpp v0.5.0 OpenCL/Adreno runtime as NVIDIA Parakeet; the Omi medical adapter is enabled only when its GGUF metadata/tensors are present.
 - Omi Med STT v1 is speech-to-text only and is not clinically validated. Transcripts require review before clinical use.
 
-Qwen3-ASR 1.7B
-- Upstream model: Qwen / Qwen3-ASR
-- Local GGUF conversion used by this app: handy-computer/Qwen3-ASR-1.7B-gguf
-- License: Apache License 2.0
-- Runtime: transcribe.cpp
+Qwen3-ASR 0.6B
+- Upstream model: Qwen/Qwen3-ASR-0.6B (Apache License 2.0).
+- GGUF decoder: ggml-org/Qwen3-ASR-0.6B-GGUF (Q8_0, 804,749,248 bytes).
+- Device-specific encoder: drinnird/qwen3-asr-0.6b-snapdragon-sm8850-v81 (~391 MB, includes tokenizer).
+- Runtime: Qualcomm ORT-QNN/HTP encoder + pinned llama.cpp v0.6.0 ARM64 Q8_0 dotprod decoder.
+- Complete on-demand installation: ~1.20 GB; no model weights bundled.
+- Qualification is currently restricted to Samsung Galaxy S26 SM-S942U; no QNN CPU fallback.
 
 This notice is informational and does not replace the license terms published with each upstream model.

@@ -31,7 +31,7 @@ object SegmentationPolicy {
     private const val PARAKEET_MAX_SECONDS = 40
     private const val OMI_MAX_SECONDS = 40
     private const val OMI_NPU_MAX_SECONDS = 12
-    private const val QWEN3_MAX_SECONDS = 60
+    private const val QWEN06_MAX_SECONDS = 240
 
     fun plan(
         engine: AsrEngine,
@@ -51,12 +51,13 @@ object SegmentationPolicy {
             AsrEngine.PARAKEET, AsrEngine.PARAKEET_NPU -> PARAKEET_MAX_SECONDS
             AsrEngine.OMI -> OMI_MAX_SECONDS
             AsrEngine.OMI_NPU -> OMI_NPU_MAX_SECONDS
-            AsrEngine.QWEN3 -> QWEN3_MAX_SECONDS
+            AsrEngine.QWEN06 -> QWEN06_MAX_SECONDS
         }
         val pcmSafetyMaxSeconds = pcmSafetyMaxSeconds(sourceSampleRate)
         val maxSegmentSeconds = minOf(runtimeMaxSegmentSeconds, pcmSafetyMaxSeconds)
         val overlapSeconds = when (engine) {
             AsrEngine.OMI_NPU -> 1
+            AsrEngine.QWEN06 -> 1
             else -> if (engine.usesBoundaryOverlap) NON_WHISPER_OVERLAP_SECONDS else 0
         }
         val fixedParakeet = engine == AsrEngine.PARAKEET || engine == AsrEngine.PARAKEET_NPU || engine == AsrEngine.OMI || engine == AsrEngine.OMI_NPU

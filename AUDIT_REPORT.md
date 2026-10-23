@@ -1,3 +1,5 @@
+> ARCHIVED PRE-v6.7 AUDIT: references to `transcribenative` / transcribe.cpp describe the now-removed 1.7B runtime and are not active v6.7 tasks.
+
 # Whisper Recorder v6.3.22 — source audit and targeted remediation
 
 Audit date: 2026-10-07 (user-local). Input: `WhisperRecorder-v6.3.22-final-cleanup(1).zip`. Output: accompanying audited source ZIP and a `CHANGES.patch`. The app version is intentionally **not** advanced or renamed.
