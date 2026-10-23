@@ -1,6 +1,7 @@
-# WhisperRecorder 6.6.25 Lab versioning
+# WhisperRecorder 6.6.26 Lab versioning
 
-- Separate experimental Lab app: versionName `6.6.25`, versionCode `66025`, production version 6.5.22 unchanged.
-- Host workflow: pinned HF 2D and GGUF BF16 four-axis **matched position** controls, with Flash Attention ON/OFF requests, producing `qwen-6.6.25-hf-gguf-position-parity-*`.
-- The evidence is synthetic and cannot establish official Qwen ASR M-RoPE parity or medical transcription accuracy. Android runtime is unchanged.
-- Local CI scripts and packaging are validated; actual pinned checkpoint computation and Android APK compilation are GitHub stages.
+- Experimental Lab versionName `6.6.26`, versionCode `66026`; production v6.5.22 not changed.
+- Automated release: `v6.6.26-lab.*` prerelease; debug application ID retains `.dev` suffix.
+- Host workflow: independently compute synthetic HF BF16/FP32 same-source-weight positional responses, with GGUF BF16 Flash ON/OFF controls. Artifact name `qwen-6.6.26-hf-execution-precision-*`.
+- The test does not qualify the official Qwen ASR audio M-RoPE grid or prove medical transcript accuracy.
+- No Android inference source code changes. CI compilation and actual GGUF/HF calculations are pending GitHub.

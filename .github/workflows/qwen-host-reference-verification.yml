@@ -1,12 +1,14 @@
-# v6.6.25: matched-position BF16 GGUF four-axis vs independent HF 2D.
+# v6.6.26: same-BF16-weight HF BF16/FP32 arithmetic against GGUF BF16 controls.
 # Synthetic data only; Android runtime is never used or modified.
-name: Qwen synthetic cross-backend positional parity
+name: Qwen same-weight execution precision controls
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/qwen-host-reference-verification.yml'
-      - 'scripts/measure-qwen-hf-position-parity.py'
+      - 'scripts/measure-qwen-hf-execution-precision.py'
+      - 'scripts/evaluate-qwen-hf-execution-precision.py'
+      - 'scripts/test-qwen-hf-execution-precision.py'
       - 'scripts/evaluate-qwen-cross-backend-positions.py'
       - 'scripts/test-qwen-cross-backend-positions.py'
       - 'scripts/verify-lab-source.py'
@@ -15,7 +17,7 @@ on:
 permissions:
   contents: read
 jobs:
-  matched-position-parity:
+  execution-precision-parity:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -44,9 +46,10 @@ jobs:
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
             --index-url https://download.pytorch.org/whl/cpu 'torch==2.7.1+cpu'
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            'transformers>=5,<6' 'huggingface_hub>=0.30,<2' \
+            'transformers==5.20.2' 'huggingface_hub>=0.30,<2' \
             'safetensors>=0.5' 'accelerate>=1.0' 'numpy>=1.26,<3'
           python3 scripts/test-qwen-cross-backend-positions.py
+          python3 scripts/test-qwen-hf-execution-precision.py
           python3 scripts/test-qwen-hf-position-contract.py
           python3 scripts/test-qwen-workflow-context.py
       - name: Download verified independent checkpoint and GGUF BF16
@@ -83,16 +86,16 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF
           cmake --build "$RUNNER_TEMP/host-build" --target qwen-mixed-reference --parallel 4
           echo "MIXED_RUNNER=$RUNNER_TEMP/host-build/qwen-mixed-reference" >> "$GITHUB_ENV"
-      - name: Phase 1 - independent HF reference logits for four 2D maps
+      - name: Phase 1 - same-weight HF BF16 and FP32 runtime logits (three input controls)
         id: hf_reference
         continue-on-error: true
         run: |
           set -euo pipefail
-          python3 scripts/measure-qwen-hf-position-parity.py \
+          python3 scripts/measure-qwen-hf-execution-precision.py \
             --checkpoint "$HF_CHECKPOINT" \
             --features verification/fixtures/s26-synthetic-features.f32le \
             --output-dir artifact/hf
-      - name: Phase 2 - BF16 GGUF logits for four equal-axis maps, both attention requests
+      - name: Phase 2 - matching BF16 GGUF logits, Flash Attention ON and OFF
         id: host_reference
         continue-on-error: true
         run: |
@@ -116,51 +119,52 @@ jobs:
             done
           done
           test "$failures" -eq 0
-      - name: Phase 3 - consolidate matched-position numerical evidence
+      - name: Phase 3 - compare HF precision and positional responses against GGUF
         if: always()
         continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p artifact
-          python3 scripts/evaluate-qwen-cross-backend-positions.py \
-            --artifact-dir artifact --output artifact/POSITION_PARITY_REPORT.json
+          python3 scripts/evaluate-qwen-hf-execution-precision.py \
+            --artifact-dir artifact --output artifact/EXECUTION_PRECISION_REPORT.json
       - name: Write synthetic fixture provenance
         if: always()
         run: |
           set -euo pipefail
           mkdir -p artifact
           {
-            echo 'WhisperRecorder v6.6.25 matched-position synthetic HF versus GGUF comparison'
+            echo 'WhisperRecorder v6.6.26 same-BF16-weights HF FP32 runtime comparison against GGUF'
             echo "lab_commit=$GITHUB_SHA"
             echo 'hf_revision=6aa69c382e2b426eee1f5870d4c95859a74b6445'
             echo 'hf_safetensors_sha256=d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35'
             echo 'gguf_bf16_sha256=12b2894d9a7c98cd8f26670f5a47ab738f42bcc98df21e109be493870c71ba50'
             echo 'features_sha256=e03a26e5e9253b05d4fad885db48dd38cb2e19e5a843e27d6d8d2e95c6cbe0ee'
             echo 'position_maps=linear,plus1,plus17,suffix-gap11'
-            echo 'host_axes=4 identical scalar positions;hf=standard 2D positions'
+            echo 'host_axes=4 equal scalar positions;hf=2D;hf_dtype=BF16,FP32-rounded-input,FP32-exact-audio'
+            echo 'hf_runtime_branches=bf16,fp32-rounded-input,fp32-exact-audio'
             echo 'host_attention=flash-off,flash-on;host_batch=256;host_threads=4'
             echo 'official_asr_mrope_grid_parity=NOT_VERIFIED;synthetic_only=true'
             echo 'android_decoder_changed=false;no_user_audio_or_transcript=true'
           } > artifact/PROVENANCE.txt
-      - name: Upload host-vs-HF positional comparison even if stages fail
+      - name: Upload same-weight precision experiment even if stages fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qwen-6.6.25-hf-gguf-position-parity-${{ github.run_number }}
+          name: qwen-6.6.26-hf-execution-precision-${{ github.run_number }}
           path: artifact/
           if-no-files-found: error
           retention-days: 14
-      - name: Fail when required positional branches were not completed
+      - name: Fail when required runtime precision branches were not completed
         if: always()
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
           from pathlib import Path
-          p=Path('artifact/POSITION_PARITY_REPORT.json')
-          if not p.is_file():raise SystemExit('POSITION_COMPARISON_UNAVAILABLE; review artifact and job logs')
+          p=Path('artifact/EXECUTION_PRECISION_REPORT.json')
+          if not p.is_file():raise SystemExit('PRECISION_COMPARISON_UNAVAILABLE; review artifact and job logs')
           r=json.loads(p.read_text())
-          if r['status']!='MATCHED_POSITION_CROSS_BACKEND_COMPARISON_COMPLETE':
-              raise SystemExit('POSITION_COMPARISON_INCOMPLETE; inspect artifact missing_branches')
-          print('Matched-position experiment completed; correctness not certified')
+          if r['status']!='SAME_WEIGHTS_EXECUTION_PRECISION_COMPARISON_COMPLETE':
+              raise SystemExit('PRECISION_COMPARISON_INCOMPLETE; inspect artifact missing_branches')
+          print('Same-weight execution precision experiment completed; correctness not certified')
           PY

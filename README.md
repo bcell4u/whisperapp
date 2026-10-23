@@ -1,11 +1,11 @@
-# WhisperRecorder Qwen GGUF Lab 6.6.25 — matched-position independent numerical comparison
+# WhisperRecorder Qwen GGUF Lab 6.6.26 — same-weight execution-precision controls
 
-Android `versionName=6.6.25`, `versionCode=66025`. The QNN encoder, existing Q8_0 ARM64 four-thread decoder, Flash Attention behavior, native inference settings, and original 6.5.22 production app remain unchanged.
+Experimental Android versionName `6.6.26`, versionCode `66026`. The working QNN encoder, four-thread ARM64 Q8_0 decoder, Flash Attention behavior, transcription speed settings and separate production 6.5.22 app remain **unchanged**.
 
-The v6.6.24 GitHub results confirmed HF implicit and explicit linear 2D positions were exactly equal and showed 254 BF16/FP32-cast decoder tensors plus 56 Q/K tensors matching the published GGUF (no confirmed mismatches). Unsupported 3D/4D HF decoder inputs do not establish an ASR M-RoPE defect.
+**6.6.25 evidence:** twelve hashed synthetic logit vectors verified. All conditions selected token ID 11528; HF BF16 responded more strongly than GGUF BF16 to a uniform `+17` position offset. This observation does not establish a positional implementation defect or clinical accuracy problem.
 
-**New experiment:** in the pinned host llama.cpp and independent published HF BF16 model, compare four *matched* prefill position maps (linear, uniform +1, uniform +17, suffix gap +11) with exactly the same synthetic audio embeddings and prompt. The GGUF host receives the same scalar position on all four axes; HF receives standard 2D text positions. GGUF Flash Attention ON/OFF are separate controls. A self-describing JSON report records paired RMSE, cosine, max difference, centered RMSE and top-1 token agreement. Incomplete branches are marked inconclusive.
+**6.6.26 experiment:** use the same pinned public HF BF16 checkpoint in BF16 arithmetic, in FP32 arithmetic with the *same BF16-rounded inputs*, and in FP32 arithmetic using original FP32 synthetic audio embeddings. Compare four matched positional maps to GGUF BF16 Flash-ON/OFF controls. Report position-response residuals instead of treating different raw logits as a bug. See `LAB_6_6_26_EXECUTION_PRECISION.md`.
 
-Push the complete ZIP source to the separate Lab repository `main` branch. Upload the resulting GitHub Actions artifact **`qwen-6.6.25-hf-gguf-position-parity-*.zip`**. No phone test is needed.
+Push the complete source to the separate Lab repository `main` branch. Upload the GitHub artifact **`qwen-6.6.26-hf-execution-precision-*.zip`** for analysis. No phone test is needed.
 
-This synthetic diagnostic **does not establish** official Qwen audio positional grids, end-to-end audio encoder correctness or medical transcription accuracy. See `LAB_6_6_25_MATCHED_POSITION_PARITY.md` and `LAB_6_6_25_VALIDATION.md`.
+The source regression suite and packaging verification are **not** a substitute for the scheduled GitHub model experiment and APK compilation. Official Qwen audio M-RoPE parity, full end-to-end encoder accuracy and medical transcription improvements remain unverified.
