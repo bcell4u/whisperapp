@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.1
-versionName=6.7.1
-versionCode=67001
+releaseVersion=6.7.2
+versionName=6.7.2
+versionCode=67002
 ```
 
-This source targets v6.7.1. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.2. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -115,3 +115,16 @@ Adds exact-path cleanup before source verification on the runner and explicit
 Git deletion instructions; preserves the actual Omi transcription engine.
 Restores successful CI progression without weakening the old-diagnostic guard.
 VersionName `6.7.1`, versionCode `67001`. Android compilation awaits next run.
+
+
+## v6.7.2 (retired Omi probe unit-test cleanup)
+
+GitHub Actions run 108138936323 passed production/Qwen audits and compiled the
+ARM64 llama.cpp decoder successfully. `:app:compileDebugUnitTestKotlin` then
+failed because an old Git-tracked diagnostic unit test
+`OmiNpuProbeContractsTest.kt` referenced the previously retired
+`OmiNpuProbeContracts` class. The exact-path overlay cleanup now removes that
+test before JVM compilation. The Qwen source audit verifies the test is absent
+and that no main/test Kotlin, Java or AIDL source references the removed class.
+The Omi recognition backends and their production tests are unaffected.
+VersionName `6.7.2`, versionCode `67002`; APK and S26 verification pending.

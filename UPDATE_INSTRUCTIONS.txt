@@ -1,7 +1,11 @@
-WhisperRecorder v6.7.1 update from the previous 6.7.0 UI-Sync-AutoReleases package.
-Unzip over the Git repository root preserving directory paths.
-Then execute: bash scripts/clean-retired-omi-diagnostics.sh
-Review git status --short, commit modifications AND deletions, and push.
-The GitHub workflow also cleans just these two obsolete files in its ephemeral
-checkout; that cleanup does not permanently delete tracked files from Git.
-All source-only tests must still pass. Automatic push builds debug .dev prereleases.
+WhisperRecorder v6.7.2 incremental update from the 6.7.1 Omi-cleanup source.
+Unzip over the Git repository ROOT, retaining the directory structure.
+Then remove retired Git-tracked files listed in DELETED_FILES.txt, or run:
+  bash scripts/clean-retired-omi-diagnostics.sh
+  git status --short
+  git add -A
+  git commit -m "WhisperRecorder 6.7.2 orphaned test cleanup"
+  git push
+GitHub Actions will automatically build on push. Successful debug .dev APK
+builds publish to GitHub Releases as uniquely tagged prereleases.
+If build fails, the source package is not an installable APK.

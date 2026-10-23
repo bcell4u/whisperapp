@@ -18,7 +18,7 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.1 / 67001': version == {'releaseVersion':'6.7.1','versionName':'6.7.1','versionCode':'67001'},
+    'version 6.7.2 / 67002': version == {'releaseVersion':'6.7.2','versionName':'6.7.2','versionCode':'67002'},
     'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish tested APK to GitHub Releases' in wf,
     'published debug builds are clearly prereleases': all(m in wf for m in (
         'gh release create', '--prerelease', 'needs: build', 'contents: write',
@@ -63,6 +63,13 @@ checks = {
         and not (app / 'npu/OmiNpuProbeContracts.kt').exists()
         and 'Omi Med NPU compatibility' not in read('app/src/main/java/com/example/whisperrecorder/ui/settings/SettingsSubscreens.kt')
         and 'OmiNpuProbeContracts' not in read('app/src/main/java/com/example/whisperrecorder/npu/NpuRuntimeWorkerService.kt'),
+    'retired Omi probe Kotlin test absent and cleaned before JVM tests':
+        not (root / 'app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt').exists()
+        and 'app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt' in read('scripts/clean-retired-omi-diagnostics.sh')
+        and 'OmiNpuProbeContracts' not in '\n'.join(
+            p.read_text(encoding='utf-8', errors='replace')
+            for source_dir in ('app/src/main', 'app/src/test')
+            for p in (root / source_dir).rglob('*') if p.is_file() and p.suffix in ('.kt', '.java', '.aidl')),
     'model removed with own QNN encoder': 'encoderDir.deleteRecursively()' in models,
     'model assets downloaded only on request': 'downloadMissing(' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'exact S26 qualifier displayed': 'SM-S942U only' in models,
@@ -78,7 +85,7 @@ checks = {
 for item, ok in checks.items():
     print(('PASS' if ok else 'FAIL') + ' ' + item)
 if not all(checks.values()):
-    stale = [str(p.relative_to(root)) for p in (root / 'scripts/verify-omi-probe.sh', app / 'npu/OmiNpuProbeContracts.kt') if p.exists()]
+    stale = [str(p.relative_to(root)) for p in (root / 'scripts/verify-omi-probe.sh', app / 'npu/OmiNpuProbeContracts.kt', root / 'app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt') if p.exists()]
     if stale:
         print('Remove obsolete tracked files: ' + ', '.join(stale))
         print('Run bash scripts/clean-retired-omi-diagnostics.sh in your checkout, commit deletions, then push.')

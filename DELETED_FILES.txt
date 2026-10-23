@@ -1,6 +1,6 @@
-# Retired Omi compatibility diagnostic files
-# DELETE from your Git checkout if present, including tracked files.
-# These files are already absent from the clean 6.7.0 and 6.7.1 source ZIPs,
-# but can persist after overlays from older versions.
+# Files retired from previous WhisperRecorder diagnostics.
+# DELETE these files from the Git checkout if present (including tracked files).
+# They are intentionally absent from clean 6.7.1/6.7.2 source packages.
 scripts/verify-omi-probe.sh
 app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt
+app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt

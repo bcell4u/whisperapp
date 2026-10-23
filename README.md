@@ -17,7 +17,7 @@ release candidate. Successful debug builds automatically publish a GitHub **prer
 
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.1**, Android `versionCode=67001`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.2**, Android `versionCode=67002`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -52,7 +52,7 @@ For the full technical details and caveats, see [NPU.md](NPU.md) and [SPEAKER_DI
 
 The complete source tree includes `.github/workflows/build.yml`, the Android Gradle modules, native modules, version metadata, and validation scripts. The workflow provisions the Android SDK/NDK, obtains and verifies pinned native dependencies, runs JVM tests, assembles an APK, audits it, and uses the configured permanent signing key for a signed production build. Review [SIGNING.md](SIGNING.md) and [VERSIONING.md](VERSIONING.md) before publishing.
 
-GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.1-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.1` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
+GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.2-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.2` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
 
 Before building, run `bash scripts/verify-source.sh` if a local shell is available. The official Android build runs in GitHub Actions; passing static source checks alone is **not** proof of compilation or device operation.
 
@@ -72,7 +72,7 @@ Historical one-off CI fix notes and per-version Markdown files were removed from
 
 The full regular and speaker transcript viewers focus on playback and word-level highlighting. Copy, Share, and Prompts shortcuts are no longer displayed in the viewer toolbar. Transcript/audio sharing remains in the preview-card actions in the recording submenu; the speaker preview card shares only the speaker transcript. The signed Android build runs through the existing GitHub Actions workflow.
 
-### Historical: Omi QNN package downloader and compatibility test (v6.5.16)
+### Historical: Omi QNN model package downloader (v6.5.16)
 
 From **Models & downloads → Qualcomm NPU**, choose **Download Omi NPU assets**. The
 existing foreground, resumable model-download service retrieves the model manifest,
@@ -84,17 +84,13 @@ verifies copied SAF documents before marking the package ready. The neural conte
 total approximately **1.24 GB**, and temporary staging requires additional free space.
 Downloads can resume. The chosen transcription model is **not changed**.
 
-After installation, open **Settings → Diagnostics → Omi Med NPU compatibility**
-and tap **Test downloaded Omi NPU assets**. The default probe tests the small
-joint and predictor QNN graphs; enable the encoder checkbox to test the large
-encoder separately. The test reads the installed package directly and no longer
-opens the document-tree folder picker. It records exact per-graph failure stages,
-provider/session errors and worker logs. It runs synthetic inputs only; no
-Omi NPU transcription engine is enabled yet. That initial source release still required Android build and on-device validation; subsequent releases have been tested. Consult [NPU.md](NPU.md) for limitations.
+The standalone Omi QNN synthetic compatibility diagnostic from v6.5.16 was
+**retired in v6.7**. It is no longer present in Settings or the runtime; normal
+Omi ASR transcription and model-file verification are separate features.
 
 ### Historical: Omi Med NPU transcription (v6.5.17)
 
-At v6.5.17, the QNN downloader and compatibility test were preserved. Installed Omi
+At v6.5.17, the QNN downloader and a separate diagnostic test existed. Installed Omi
 NPU assets may now be selected as a **separate** experimental English medical
 transcription backend in Models & downloads. It runs the encoder, predictor and
 joint QNN context graphs on the Hexagon V81 NPU through existing ORT-QNN,

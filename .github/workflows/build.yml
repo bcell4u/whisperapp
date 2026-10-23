@@ -57,7 +57,7 @@ jobs:
           echo "Loaded v$RELEASE_VERSION / $VERSION_NAME / code $VERSION_CODE"
 
       # If an update ZIP was copied over an older Git checkout, Git keeps files
-      # deleted by that update. Remove ONLY the two retired diagnostic artifacts
+      # deleted by that update. Remove ONLY the three retired diagnostic artifacts
       # before Kotlin compilation and strict source verification. The companion
       # changed-files ZIP also supplies a deletion manifest for repository cleanup.
       - name: Clean retired Omi diagnostic leftovers

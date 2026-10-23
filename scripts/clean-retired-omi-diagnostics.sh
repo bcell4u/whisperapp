@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove ONLY obsolete Omi NPU compatibility diagnostic artifacts left behind
+# Remove ONLY obsolete Omi NPU compatibility diagnostic sources/tests left behind
 # when updated source files were copied over an existing Git checkout.
 # This does not modify the production Omi ASR implementation.
 set -euo pipefail
@@ -7,6 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 paths=(
   "scripts/verify-omi-probe.sh"
   "app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt"
+  "app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt"
 )
 for rel in "${paths[@]}"; do
   if [ -e "$ROOT/$rel" ] || [ -L "$ROOT/$rel" ]; then

@@ -59,21 +59,12 @@ only after downloaded files and archived copies are verified. Interrupted downlo
 retain partial files for resumption. Changing the manually selected ASR backend is
 out of scope.
 
-Settings → Diagnostics → **Omi Med NPU compatibility (experimental)** runs an
-on-phone ORT-QNN **context-loading and synthetic inference test only**, directly
-from the installed package. The default probe tests `joint.bin` and
-`predictor.bin`; **Include 1.2 GB encoder** adds `encoder.bin` to the test. The
-previous manual SAF folder picker has been removed.
-
-The probe uses exact QNN 2.50 / Hexagon V81 compiled graph names and FP32 interfaces
-from `qnn-context-binary-utility` metadata. It verifies the published SHA-256,
-tries descriptor/resolved-path loading first, and stages a single context
-transiently if ORT cannot reopen the SAF descriptor. It reports the per-graph
-failure stage, stack trace, QNN load attempts, output validity, latency, and worker
-logs. CPU neural fallback is disabled. A PASS does not prove ASR correctness:
-**the experimental Omi encoder previously failed its FP16 numerical acceptance
-gate**, and clinical transcript accuracy has not been qualified. The existing
-Parakeet NPU and Omi OpenCL production backends are unchanged.
+The separate Omi QNN synthetic compatibility probe was a historical 6.5.x
+experiment and is **not part of the v6.7 application**. Its runtime, probe
+button, and related unit test are retired. The published Omi encoder previously
+failed its FP16 numerical acceptance gate; clinical transcription accuracy is
+not qualified by those historical tests. This does not change the independent
+Parakeet NPU or Omi OpenCL transcription paths.
 
 ## Historical Omi NPU transcription (v6.5.17)
 

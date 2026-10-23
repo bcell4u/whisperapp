@@ -7,3 +7,13 @@
 5. **First use debug `.dev`** so v6.5.22 stays installed and untouched. Do not distribute or upgrade production until real CI and device checks pass.
 
 The Qwen3-ASR 0.6B card downloads the ~805 MB GGUF decoder plus device-specific ~391 MB QNN context/tokenizer on demand. Model weights are not bundled with the APK. The QNN encoder is currently targeted at Snapdragon S26 model SM-S942U.
+
+
+### Version 6.7.2 Git overlay cleanup
+
+If previous source updates were pasted over GitHub without deleting retired
+files, execute `bash scripts/clean-retired-omi-diagnostics.sh` in the repository
+root and **commit the deletions**. The updated cleaner targets exactly the old
+Omi probe shell script, Kotlin contract, and Kotlin *test*; the actual Omi ASR
+engine and normal Omi tests remain untouched. A successful source audit is
+not a substitute for a completed Android APK build.
