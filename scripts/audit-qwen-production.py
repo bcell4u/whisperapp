@@ -18,7 +18,7 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.5 / 67005': version == {'releaseVersion':'6.7.5','versionName':'6.7.5','versionCode':'67005'},
+    'version 6.7.6 / 67006': version == {'releaseVersion':'6.7.6','versionName':'6.7.6','versionCode':'67006'},
     'microphone probe checks RECORD_AUDIO at AudioRecord constructor boundary': all(s in read('app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt') for s in (
         'checkPcm(context, source, noiseSuppressor, aec)',
         'private fun checkPcm(context: Context',
@@ -127,6 +127,45 @@ checks = {
 for item, ok in checks.items():
     print(('PASS' if ok else 'FAIL') + ' ' + item)
 if not all(checks.values()):
+    # An update overlay contains ONLY the files changed in that release.
+    # Skipping an intermediate overlay can leave old Kotlin/workflow files
+    # beside a new audit script and version.properties. Report the missing
+    # prerequisites without loosening or silently repairing the checks.
+    update_dependencies = {
+        'microphone probe checks RECORD_AUDIO at AudioRecord constructor boundary': [
+            ('app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt',
+             ('private fun checkPcm(context: Context',
+              'context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)',
+              'throw SecurityException("Microphone permission is required for a WAV input check")'))],
+        'recording paths recheck RECORD_AUDIO before opening microphone': [
+            ('app/src/main/java/com/example/whisperrecorder/audio/WavPcmRecorder.kt',
+             ('private val context: Context',
+              'private fun createRecorder(source: Int, bufferSize: Int)',
+              'context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)')),
+            ('app/src/main/java/com/example/whisperrecorder/audio/RecordingService.kt',
+             ('WavPcmRecorder(this, requireNotNull(tempFile), processingConfig)',
+              'checkSelfPermission(Manifest.permission.RECORD_AUDIO)',
+              'private fun createCompressedRecorder(audioSource: Int): MediaRecorder'))],
+        'lint failures yield visible issue summaries and a failed build job': [
+            ('.github/workflows/build.yml',
+             ('scripts/summarize-android-lint.py',
+              'Enforce Android lint release gate',
+              'Lint failed; will not publish')),
+            ('scripts/summarize-android-lint.py', ())],
+    }
+    for failed_check, paths in update_dependencies.items():
+        if checks.get(failed_check) is False:
+            print(f'INCOMPLETE UPDATE: {failed_check}')
+            for relpath, markers in paths:
+                file = root / relpath
+                if not file.is_file():
+                    print(f'  MISSING FILE: {relpath}')
+                    continue
+                missing = [m for m in markers if m not in file.read_text(encoding='utf-8')]
+                print(f'  REPAIR FILE: {relpath}' +
+                      (f' ({len(missing)} required checks absent)' if missing else ' (verify version of this file)'))
+            print('  Fix: overlay the v6.7.6 CHANGED-FILES-ONLY ZIP including its'
+                  ' cumulative repair files, commit all updated paths, then rerun the audit.')
     stale = [str(p.relative_to(root)) for p in (root / 'scripts/verify-omi-probe.sh', app / 'npu/OmiNpuProbeContracts.kt', root / 'app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt') if p.exists()]
     if stale:
         print('Remove obsolete tracked files: ' + ', '.join(stale))

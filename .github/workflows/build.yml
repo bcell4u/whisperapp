@@ -320,8 +320,13 @@ jobs:
           LINT_EXIT=$?
           set -e
           echo "ANDROID_LINT_EXIT=$LINT_EXIT" >> "$GITHUB_ENV"
+          # Print the actionable Lint issue IDs and source locations in Actions.
+          # The complete Gradle log/XML remain in the uploaded build artifact.
           if [ "$LINT_EXIT" -ne 0 ]; then
-            echo "Android lint reported warnings/errors; inspect bundled lint report before production deployment."
+            echo "::error title=Android lint failed::${LINT_TASK} exited ${LINT_EXIT}; APK will not be published."
+            python3 scripts/summarize-android-lint.py \
+              --log app/build/distributions/android-lint-build.log \
+              --xml "app/build/reports/lint-results-${APK_VARIANT:-debug}.xml" || true
           else
             echo 'Android lint PASSED.'
           fi
@@ -534,6 +539,18 @@ jobs:
             ${{ env.PROJECT_DIR }}/app/build/reports/lint-results-release.xml
           if-no-files-found: error
           retention-days: 14
+
+      # Do this AFTER uploading the diagnostic report so lint failures remain
+      # downloadable. Never mark a lint-failed build successful or publish it.
+      - name: Enforce Android lint release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${ANDROID_LINT_EXIT:-not_run}" != "0" ]; then
+            echo '::error title=Android lint gate failed::Download the build artifact for android-lint-build.log and lint XML; fix the reported issues before publishing.'
+            exit 1
+          fi
+          echo 'Android lint gate PASSED; release job may proceed.'
 
   publish:
     name: Publish tested APK to GitHub Releases

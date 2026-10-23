@@ -1,3 +1,5 @@
-# No files are removed between the clean 6.7.4 and 6.7.5 source packages.
-
-If your Git repository was updated via overlays from older 6.7 releases, also permanently remove any stale Omi diagnostic-only sources listed in scripts/clean-retired-omi-diagnostics.sh.
+# Reconciliation deletions for GitHub checkouts that skipped old ZIP updates.
+# These files do not exist in the clean 6.7.5 baseline; remove from Git if still tracked.
+scripts/verify-omi-probe.sh
+app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt
+app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt

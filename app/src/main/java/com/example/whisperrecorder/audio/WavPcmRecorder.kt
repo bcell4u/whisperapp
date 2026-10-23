@@ -1,5 +1,8 @@
 package com.example.whisperrecorder.audio
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -19,6 +22,7 @@ import kotlin.math.abs
  * rely on the selected audio source/OEM processing path instead.
  */
 class WavPcmRecorder(
+    private val context: Context,
     private val output: File,
     private val processing: MicrophoneProcessingConfig = MicrophoneProcessing.presetConfig(MicrophoneProcessing.PRESET_DEFAULT)
 ) {
@@ -44,6 +48,9 @@ class WavPcmRecorder(
     val error: Throwable? get() = failure
 
     fun start() {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission is required for WAV recording")
+        }
         check(!running.get()) { "WAV recorder is already running" }
         val minBuffer = AudioRecord.getMinBufferSize(
             SAMPLE_RATE,
@@ -109,6 +116,10 @@ class WavPcmRecorder(
     }
 
     private fun createRecorder(source: Int, bufferSize: Int): AudioRecord? = runCatching {
+        // Recheck at the AudioRecord constructor boundary, independently of start().
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission is required for WAV recording")
+        }
         AudioRecord(
             source,
             SAMPLE_RATE,

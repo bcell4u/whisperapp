@@ -59,3 +59,30 @@ To diagnose any outstanding lint findings, upload the complete
 ### v6.7.5 model-download user experience
 
 Model download status now stays in each model card, including Qwen's 805 MB GGUF stage. After a successful, verified download, the foreground service selects newly installed Qwen and NPU packages. Whisper/local GPU downloads already select their model. On any failure or cancellation, do not claim selection. Pushing a commit automatically runs the debug build, then publishes a prerelease only if all CI gates including lint pass.
+
+
+### v6.7.6 cumulative repository repair (run 108363851626)
+
+The run passed `verify-source.sh` then failed 3 Qwen audit checks **before**
+Gradle or Android lint. The v6.7.5 full source passes these checks locally;
+its changed-only ZIP lacked prerequisite files from previous revisions.
+
+Unzip **v6.7.6 CHANGED-FILES-ONLY ZIP** into the repository root, preserving the
+`app/`, `scripts/`, and `.github/` directories. Unlike typical incremental
+packages, this ZIP intentionally includes *unchanged canonical repair copies*
+of three microphone Kotlin files, the GitHub workflow and lint summarizer.
+Review `REPAIR_INCLUDED_FILES.txt`; do not commit helper `.txt` files from the
+ZIP unless desired. Follow `DELETED_FILES.txt` for any retired paths.
+
+Before pushing, run:
+
+```bash
+bash scripts/verify-source.sh
+python3 scripts/audit-qwen-production.py
+python3 -m py_compile scripts/audit-qwen-production.py scripts/summarize-android-lint.py
+```
+
+Commit the complete tree including `.github/workflows/build.yml`; push to
+trigger the default side-by-side debug build. Check that Android compilation,
+unit tests, lint, APK audit, and Release creation actually pass. A green source
+audit alone does not prove a valid APK or S26 inference.

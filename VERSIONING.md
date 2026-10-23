@@ -3,12 +3,12 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.5
-versionName=6.7.5
-versionCode=67005
+releaseVersion=6.7.6
+versionName=6.7.6
+versionCode=67006
 ```
 
-This source targets v6.7.5. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.6. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
@@ -141,7 +141,7 @@ publishing. No lint checks are disabled or ignored. VersionName `6.7.3`,
 versionCode `67003`. Rebuild and inspect lint findings before claiming success.
 
 
-## v6.7.5 (microphone permission safety and Android lint remediation)
+## v6.7.4 (microphone permission safety and Android lint remediation)
 
 GitHub run 108142028325 produced and APK-audited the 6.7.2 debug APK but
 Android lint returned 7 errors and 9 warnings. The user-provided Gradle log
@@ -151,4 +151,23 @@ RECORD_AUDIO permission validation directly at the probe capture entry point,
 WAV recorder entry and constructor boundary, and compressed recording service.
 No lint checks were suppressed or disabled. The six other lint errors cannot
 be identified without the XML/full lint report. A new Android build/lint run
-and actual S26 playback smoke test remain mandatory. Version code `67005`.
+and actual S26 playback smoke test remain mandatory. Version code `67004`.
+
+
+## v6.7.5 (model download and Qwen window progress)
+
+Model downloads show progress inside their corresponding cards and auto-select
+newly verified models. Qwen transcription shows real encoder-window counts and
+an indeterminate indicator during llama.cpp decoding. No new timing algorithm.
+Version code `67005`.
+
+## v6.7.6 (cumulative update-repair packaging)
+
+GitHub run `108363851626` passed production source gates but stopped at the
+Qwen source audit: 3 failed invariants. The **complete v6.7.5 source** already
+passes all those checks locally. The evidence is consistent with applying the
+v6.7.5 changed-only ZIP without the prerequisite v6.7.3 lint-workflow and
+v6.7.4 microphone-permission files. This version includes those prerequisites
+in a *cumulative repair overlay*, makes the audit identify relevant paths,
+and retains strict permission/lint enforcement. Version code `67006`.
+CI compilation/lint and S26 phone tests for 6.7.6 are not yet verified.

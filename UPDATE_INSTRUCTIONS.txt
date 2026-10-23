@@ -1,2 +1,1 @@
-WhisperRecorder 6.7.5 changed files compared with the 6.7.4 MicrophoneLintFix FULL-SOURCE.zip.
-Unpack into the root of the existing Git checkout, preserving directories. Review DELETED_FILES.txt and git status; commit additions/modifications/deletions. Push to start the GitHub Actions build. Debug .dev APK prerelease publishing still requires passing Android lint and APK gates. This is not an installable APK.
+Overlay from repository root preserving paths. Run bash scripts/verify-source.sh and python3 scripts/audit-qwen-production.py before committing.

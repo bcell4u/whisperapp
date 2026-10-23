@@ -1,0 +1,18 @@
+6.7.6 cumulative repair overlay (use from any partially-updated 6.7.2-6.7.5 checkout)
+
+The three microphone source files below restore 6.7.4 permission fixes.
+The GitHub workflow and lint summarizer restore 6.7.3 lint reporting/fail gate.
+All these files match the complete, audited 6.7.5 baseline: they were *not*
+modified by the 6.7.6 version bump, but must be shipped to repair skipped updates.
+
+.github/workflows/build.yml
+scripts/summarize-android-lint.py
+app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt
+app/src/main/java/com/example/whisperrecorder/audio/WavPcmRecorder.kt
+app/src/main/java/com/example/whisperrecorder/audio/RecordingService.kt
+
+Overlay this ZIP over the repository ROOT, not under an extra folder.
+Review DELETED_FILES.txt and commit necessary removals with git add -A.
+Run bash scripts/verify-source.sh and python3 scripts/audit-qwen-production.py.
+Push to trigger Actions; CI will still block release on Android lint errors.
+The git patch is for a CLEAN complete 6.7.5 source, not a mixed-version tree.

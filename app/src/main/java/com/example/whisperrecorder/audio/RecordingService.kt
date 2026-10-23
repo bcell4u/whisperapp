@@ -1,6 +1,8 @@
 package com.example.whisperrecorder.audio
 
+import android.Manifest
 import android.app.*
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.media.MediaRecorder
 import android.net.Uri
@@ -102,6 +104,11 @@ class RecordingService : Service() {
 
     private fun startRecording(intent: Intent) {
         if (recorderActive()) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            RecordingRuntime.update(RecordingRuntime.State(error = "Grant microphone permission to record"))
+            stopSelf()
+            return
+        }
         val tree = intent.getStringExtra(EXTRA_TREE) ?: run {
             RecordingRuntime.update(RecordingRuntime.State(error = "Choose a working directory first")); stopSelf(); return
         }
@@ -114,7 +121,7 @@ class RecordingService : Service() {
 
         try {
             if (format == "wav") {
-                WavPcmRecorder(requireNotNull(tempFile), processingConfig).also { recorder ->
+                WavPcmRecorder(this, requireNotNull(tempFile), processingConfig).also { recorder ->
                     recorder.start()
                     wavRecorder = recorder
                     DiagnosticLogger.append(
@@ -215,6 +222,9 @@ class RecordingService : Service() {
     }
 
     private fun createCompressedRecorder(audioSource: Int): MediaRecorder {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission is required for recording")
+        }
         val mr = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
         try {
             mr.setAudioSource(audioSource)

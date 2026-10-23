@@ -35,7 +35,7 @@ internal object MicrophoneCapabilityProbe {
             return Result(false, "Explicit noise suppression and echo cancellation can only be verified and enabled for WAV. M4A/Opus effects are controlled by Android; choose Auto or switch to WAV.")
         }
         return runCatching {
-            if (format == "wav") checkPcm(source, noiseSuppressor, aec)
+            if (format == "wav") checkPcm(context, source, noiseSuppressor, aec)
             else checkCompressed(context, source, format)
             Result(true, "${MicrophoneProcessing.sourceLabel(source)} passed the $format input check. Device routing can change when recording starts.")
         }.getOrElse { error ->
@@ -43,7 +43,12 @@ internal object MicrophoneCapabilityProbe {
         }
     }
 
-    private fun checkPcm(source: String, noiseSuppressor: String, aec: String) {
+    private fun checkPcm(context: Context, source: String, noiseSuppressor: String, aec: String) {
+        // Check at the microphone-opening boundary, not only in the UI/preflight.
+        // Android permission can be revoked while the user is changing options.
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission is required for a WAV input check")
+        }
         val minBuffer = AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         require(minBuffer > 0) { "16 kHz WAV capture is unavailable" }
         val recorder = AudioRecord(
@@ -78,6 +83,9 @@ internal object MicrophoneCapabilityProbe {
     }
 
     private fun checkCompressed(context: Context, source: String, format: String) {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Microphone permission is required for an audio input check")
+        }
         val file = File.createTempFile("mic-source-probe-", if (format == "opus") ".ogg" else ".m4a", context.cacheDir)
         val recorder = try {
             if (android.os.Build.VERSION.SDK_INT >= 31) MediaRecorder(context)
