@@ -18,7 +18,7 @@ worker = read('app/src/main/java/com/example/whisperrecorder/qwen/Qwen3HybridWor
 downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelDownloader.kt')
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
-    'version 6.7.0 / 67000': version == {'releaseVersion':'6.7.0','versionName':'6.7.0','versionCode':'67000'},
+    'version 6.7.1 / 67001': version == {'releaseVersion':'6.7.1','versionName':'6.7.1','versionCode':'67001'},
     'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish tested APK to GitHub Releases' in wf,
     'published debug builds are clearly prereleases': all(m in wf for m in (
         'gh release create', '--prerelease', 'needs: build', 'contents: write',
@@ -61,7 +61,8 @@ checks = {
         'isWhisperModelCandidate', 'encoder-qnn-', 'filter { isWhisperModelCandidate(it.name) }')),
     'Omi diagnostic probe cleanup is complete': not (root / 'scripts/verify-omi-probe.sh').exists()
         and not (app / 'npu/OmiNpuProbeContracts.kt').exists()
-        and 'Omi Med NPU compatibility' not in read('app/src/main/java/com/example/whisperrecorder/ui/settings/SettingsSubscreens.kt'),
+        and 'Omi Med NPU compatibility' not in read('app/src/main/java/com/example/whisperrecorder/ui/settings/SettingsSubscreens.kt')
+        and 'OmiNpuProbeContracts' not in read('app/src/main/java/com/example/whisperrecorder/npu/NpuRuntimeWorkerService.kt'),
     'model removed with own QNN encoder': 'encoderDir.deleteRecursively()' in models,
     'model assets downloaded only on request': 'downloadMissing(' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'exact S26 qualifier displayed': 'SM-S942U only' in models,
@@ -69,9 +70,17 @@ checks = {
     'QNN backup recovery is fail-closed': all(token in read('app/src/main/java/com/example/whisperrecorder/qwen/QwenEncoderAssets.kt') for token in ('recoverInterruptedInstall(folder, backup)', 'verify(backup)', 'backup.renameTo(folder)')),
     'cancel before native decode': 'private fun finish(): JSONObject {\n        check(!cancelRequested)' in worker,
     'QNN progress never decreases': 'highestCompletedBytes = maxOf(highestCompletedBytes, estimate)' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
+    'retired diagnostics cleaned before source validation': all(t in wf for t in (
+        'Clean retired Omi diagnostic leftovers', 'Verify source', 'scripts/clean-retired-omi-diagnostics.sh'))
+        and wf.index('Clean retired Omi diagnostic leftovers') < wf.index('Verify source'),
     'debug side-by-side is default even when signing secrets exist': all(t in wf for t in ('default: debug', "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release'", 'if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.build_variant }}" = "release" ]; then' ))
 }
 for item, ok in checks.items():
     print(('PASS' if ok else 'FAIL') + ' ' + item)
-if not all(checks.values()): raise SystemExit('Production Qwen static audit FAILED')
+if not all(checks.values()):
+    stale = [str(p.relative_to(root)) for p in (root / 'scripts/verify-omi-probe.sh', app / 'npu/OmiNpuProbeContracts.kt') if p.exists()]
+    if stale:
+        print('Remove obsolete tracked files: ' + ', '.join(stale))
+        print('Run bash scripts/clean-retired-omi-diagnostics.sh in your checkout, commit deletions, then push.')
+    raise SystemExit('Production Qwen static audit FAILED')
 print(f'Qwen production static audit PASSED ({len(checks)}/{len(checks)})')

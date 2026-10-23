@@ -1,3 +1,6 @@
-app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt
-app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt
+# Retired Omi compatibility diagnostic files
+# DELETE from your Git checkout if present, including tracked files.
+# These files are already absent from the clean 6.7.0 and 6.7.1 source ZIPs,
+# but can persist after overlays from older versions.
 scripts/verify-omi-probe.sh
+app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt

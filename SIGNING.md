@@ -45,7 +45,7 @@ In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
 - `ANDROID_KEY_PASSWORD` - the key-entry password.
 - `ANDROID_SIGNING_CERT_SHA256` - the SHA-256 certificate fingerprint printed by the helper/keytool. Colons are optional.
 
-For v6.7.0, **every push to any branch automatically builds the side-by-side debug APK** (`com.example.whisperrecorder.dev`), even if all five release-signing secrets exist. A release-package build is only attempted if a user manually runs **Actions → Build Android APK → Run workflow** and explicitly selects `build_variant=release`; all five original signing secrets are mandatory for that build. Every successful, lint-clean debug build is published automatically to GitHub **Releases as a prerelease**; the production app ID is never published from an automatic push. An explicit manual signed release build publishes the stable version tag if it is new. If the signing-certificate fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the release build fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
+For v6.7.1, **every push to any branch automatically builds the side-by-side debug APK** (`com.example.whisperrecorder.dev`), even if all five release-signing secrets exist. A release-package build is only attempted if a user manually runs **Actions → Build Android APK → Run workflow** and explicitly selects `build_variant=release`; all five original signing secrets are mandatory for that build. Every successful, lint-clean debug build is published automatically to GitHub **Releases as a prerelease**; the production app ID is never published from an automatic push. An explicit manual signed release build publishes the stable version tag if it is new. If the signing-certificate fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the release build fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
 
 ## First install with the permanent key
 
@@ -55,7 +55,7 @@ The application package must remain `com.example.whisperrecorder` and the perman
 
 ## Release behavior
 
-When the 6.7.0 workflow is manually dispatched with permanent signing secrets configured, GitHub Actions:
+When the 6.7.1 workflow is manually dispatched with permanent signing secrets configured, GitHub Actions:
 
 - reconstructs the keystore only inside the temporary runner;
 - verifies the keystore certificate against the pinned SHA-256 fingerprint secret;

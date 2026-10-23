@@ -56,6 +56,14 @@ jobs:
           echo "APP_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "Loaded v$RELEASE_VERSION / $VERSION_NAME / code $VERSION_CODE"
 
+      # If an update ZIP was copied over an older Git checkout, Git keeps files
+      # deleted by that update. Remove ONLY the two retired diagnostic artifacts
+      # before Kotlin compilation and strict source verification. The companion
+      # changed-files ZIP also supplies a deletion manifest for repository cleanup.
+      - name: Clean retired Omi diagnostic leftovers
+        shell: bash
+        run: bash "$PROJECT_DIR/scripts/clean-retired-omi-diagnostics.sh"
+
       - name: Verify source
         shell: bash
         run: bash "$PROJECT_DIR/scripts/verify-source.sh"
@@ -321,7 +329,7 @@ jobs:
       - name: Native compiler cache stats
         if: always()
         shell: bash
-        run: ccache --show-stats || true
+        run: if command -v ccache >/dev/null 2>&1; then ccache --show-stats; else echo 'Native compiler cache was not installed before this job failed'; fi
 
       - name: Audit built APK
         shell: bash

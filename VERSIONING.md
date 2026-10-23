@@ -3,16 +3,16 @@
 `version.properties` is the single authoritative version source. Its three entries must advance together for **each new released APK**:
 
 ```properties
-releaseVersion=6.7.0
-versionName=6.7.0
-versionCode=67000
+releaseVersion=6.7.1
+versionName=6.7.1
+versionCode=67001
 ```
 
-This source targets v6.7.0. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
+This source targets v6.7.1. Omi NPU remains separately selectable; its underlying model qualification is unchanged. Other speech engines and diarization are unchanged. Continue to increment all three fields for each subsequent release while preserving the existing application ID and **permanent signing certificate**. Follow [SIGNING.md](SIGNING.md) for CI signing secrets and update rules.
 
 ## Repository workflow
 
-- The v6.7 integration is built on every branch push via the `push` trigger (always the debug `.dev` APK). Manual `workflow_dispatch` also remains available, and **only explicit manual `build_variant=release`** with the original signing credentials can build the production-package candidate. No automatic release publication or deployment.
+- The v6.7 integration is built on every branch push via the `push` trigger (always the debug `.dev` APK). Manual `workflow_dispatch` also remains available, and **only explicit manual `build_variant=release`** with the original signing credentials can build the production-package candidate. Successful push-triggered builds publish uniquely tagged debug `.dev` prereleases to GitHub Releases after lint/APK audits. Production builds and stable tags remain explicitly manual, signed operations; no APK is installed automatically.
 - The workflow validates source, compiles native/Android components, runs JVM tests, and audits the APK. A local source verifier is not an Android build.
 - Use a **Git patch** in GitHub Codespaces or a local clone to update an existing repository. A full source ZIP is appropriate for initial import, disaster recovery, or examining all files.
 - In github.dev, copying the entire extracted source onto an existing project prompts to overwrite every matching filename, whether changed or identical. Use the small changed-files ZIP instead, and manually delete paths listed in its instructions. For deletions, a Git patch via a terminal is simpler.
@@ -105,3 +105,13 @@ No Lab synthetic diagnostics or benchmark UI is included. The workflow is
 push-triggered for debug and manually opt-in for release, and uploads APKs as Actions artifacts; production deployment must
 wait for CI APK build, signer audit, and S26 transcription verification.
 `versionCode=67000`.
+
+
+## v6.7.1 (Omi probe cleanup for GitHub source overlays)
+
+In GitHub Actions run 108136917571, strict source auditing found a legacy
+Omi compatibility diagnostic file left in a Git checkout by a ZIP overlay.
+Adds exact-path cleanup before source verification on the runner and explicit
+Git deletion instructions; preserves the actual Omi transcription engine.
+Restores successful CI progression without weakening the old-diagnostic guard.
+VersionName `6.7.1`, versionCode `67001`. Android compilation awaits next run.

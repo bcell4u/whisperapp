@@ -1,0 +1,7 @@
+WhisperRecorder v6.7.1 update from the previous 6.7.0 UI-Sync-AutoReleases package.
+Unzip over the Git repository root preserving directory paths.
+Then execute: bash scripts/clean-retired-omi-diagnostics.sh
+Review git status --short, commit modifications AND deletions, and push.
+The GitHub workflow also cleans just these two obsolete files in its ephemeral
+checkout; that cleanup does not permanently delete tracked files from Git.
+All source-only tests must still pass. Automatic push builds debug .dev prereleases.

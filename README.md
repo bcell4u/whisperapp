@@ -17,7 +17,7 @@ release candidate. Successful debug builds automatically publish a GitHub **prer
 
 # WhisperRecorder
 
-WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.0**, Android `versionCode=67000`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
+WhisperRecorder is an offline-first Android audio recorder and transcription app. **Current source release: v6.7.1**, Android `versionCode=67001`. The authoritative version is `version.properties`; do not infer the version from a historical document or ZIP filename.
 
 ## Transcription and acceleration
 
@@ -52,7 +52,7 @@ For the full technical details and caveats, see [NPU.md](NPU.md) and [SPEAKER_DI
 
 The complete source tree includes `.github/workflows/build.yml`, the Android Gradle modules, native modules, version metadata, and validation scripts. The workflow provisions the Android SDK/NDK, obtains and verifies pinned native dependencies, runs JVM tests, assembles an APK, audits it, and uses the configured permanent signing key for a signed production build. Review [SIGNING.md](SIGNING.md) and [VERSIONING.md](VERSIONING.md) before publishing.
 
-GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.0-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.0` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
+GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.1-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.1` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
 
 Before building, run `bash scripts/verify-source.sh` if a local shell is available. The official Android build runs in GitHub Actions; passing static source checks alone is **not** proof of compilation or device operation.
 
