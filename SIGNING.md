@@ -45,7 +45,7 @@ In GitHub, open **Settings -> Secrets and variables -> Actions -> New repository
 - `ANDROID_KEY_PASSWORD` - the key-entry password.
 - `ANDROID_SIGNING_CERT_SHA256` - the SHA-256 certificate fingerprint printed by the helper/keytool. Colons are optional.
 
-For v6.7.0, **every push to any branch automatically builds the side-by-side debug APK** (`com.example.whisperrecorder.dev`), even if all five release-signing secrets exist. A release-package build is only attempted if a user manually runs **Actions → Build Android APK → Run workflow** and explicitly selects `build_variant=release`; all five original signing secrets are mandatory for that build. It does **not** publish a GitHub Release automatically. If the signing-certificate fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the release build fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
+For v6.7.0, **every push to any branch automatically builds the side-by-side debug APK** (`com.example.whisperrecorder.dev`), even if all five release-signing secrets exist. A release-package build is only attempted if a user manually runs **Actions → Build Android APK → Run workflow** and explicitly selects `build_variant=release`; all five original signing secrets are mandatory for that build. Every successful, lint-clean debug build is published automatically to GitHub **Releases as a prerelease**; the production app ID is never published from an automatic push. An explicit manual signed release build publishes the stable version tag if it is new. If the signing-certificate fingerprint differs from `ANDROID_SIGNING_CERT_SHA256`, the release build fails closed. Do not install a release candidate over the working production installation before a confirmed device test and backup.
 
 ## First install with the permanent key
 
@@ -64,7 +64,7 @@ When the 6.7.0 workflow is manually dispatched with permanent signing secrets co
 - records the signer fingerprint in `build-proof.txt`;
 - uploads the signed APK as an Actions artifact.
 
-No GitHub Release or stable tag is created automatically for 6.7.0.
+Debug preview GitHub Releases are created automatically after APK inspection and lint pass; stable production release tags are created only after an explicitly chosen manual release build with verified signing identity.
 
 The private keystore is never committed to the repository or uploaded as a build artifact.
 

@@ -102,8 +102,12 @@ object ModelManager {
         }
         .toSet()
 
+    private fun isWhisperModelCandidate(name: String): Boolean =
+        name.endsWith(".bin", ignoreCase = true) &&
+            !name.startsWith("encoder-qnn-", ignoreCase = true)
+
     internal fun restorePersistentModels(context: Context, archive: ModelArchiveSnapshot?): List<File> {
-        val docs = archive?.documents?.filter { it.name.endsWith(".bin", true) } ?: return installed(context)
+        val docs = archive?.documents?.filter { isWhisperModelCandidate(it.name) } ?: return installed(context)
         val localDir = modelsDir(context)
         docs.forEach { doc ->
             val local = File(localDir, doc.name)
@@ -124,7 +128,10 @@ object ModelManager {
     }
 
     fun modelsDir(context: Context): File = File(context.filesDir, "models").apply { mkdirs() }
-    fun installed(context: Context): List<File> = modelsDir(context).listFiles()?.filter { it.extension.equals("bin", true) }?.sortedBy { it.name } ?: emptyList()
+    fun installed(context: Context): List<File> = modelsDir(context).listFiles()
+        ?.filter { file ->
+            file.isFile && isWhisperModelCandidate(file.name)
+        }?.sortedBy { it.name } ?: emptyList()
 
     suspend fun download(
         context: Context,

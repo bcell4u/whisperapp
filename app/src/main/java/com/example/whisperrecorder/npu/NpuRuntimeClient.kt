@@ -29,8 +29,6 @@ internal class NpuRuntimeClient private constructor(private val context: Context
         override fun onNullBinding(name: ComponentName?) { remote = null; connected.countDown() }
     }
 
-    fun probeOmiContexts(includeEncoder: Boolean): JSONObject =
-        JSONObject(call("probeOmiContexts") { it.probeOmiContexts(includeEncoder) })
     fun bootstrap(): JSONObject = JSONObject(call("bootstrap") { it.bootstrap() })
     fun prepareOmiRuntime(): JSONObject = JSONObject(call("prepareOmiRuntime") { it.prepareOmiRuntime() })
     fun transcribeOmiChunk(pcm: SharedMemory, sampleCount: Int, audioDurationMs: Long): JSONObject =

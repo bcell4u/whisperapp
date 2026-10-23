@@ -1,0 +1,3 @@
+app/src/main/java/com/example/whisperrecorder/npu/OmiNpuProbeContracts.kt
+app/src/test/java/com/example/whisperrecorder/npu/OmiNpuProbeContractsTest.kt
+scripts/verify-omi-probe.sh

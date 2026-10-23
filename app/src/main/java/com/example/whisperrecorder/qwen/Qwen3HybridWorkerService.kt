@@ -251,7 +251,10 @@ class Qwen3HybridWorkerService : Service() {
                 QwenTranscriptCleaner.cleanSegment(tokenizer.decode(tokens.getValue(index)))
             }
             val stitched = QwenTranscriptStitcher.stitch(cleanSegments, overlapSeconds)
+            // Window membership is used for approximate playback alignment only.
+            // No native word-level timestamps are claimed or exported to logs.
             return JSONObject().put("transcript", stitched.transcript)
+                .put("kept_windows", org.json.JSONArray(stitched.keptWindows))
                 .put("overlap_seconds", overlapSeconds)
                 .put("stitched_duplicate_words", stitched.removedDuplicateWords)
                 .put("stitched_boundaries", stitched.stitchedBoundaries)

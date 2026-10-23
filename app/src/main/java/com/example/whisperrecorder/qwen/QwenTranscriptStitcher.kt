@@ -18,7 +18,8 @@ internal object QwenTranscriptStitcher {
         val removedDuplicateWords: Int,
         val stitchedBoundaries: Int,
         val unmatchedBoundaries: Int,
-        val repetitionCopiesRemoved: Int
+        val repetitionCopiesRemoved: Int,
+        val keptWindows: List<String>
     )
 
     private const val MAX_SEAM_WORDS = 24
@@ -28,15 +29,16 @@ internal object QwenTranscriptStitcher {
     /** Inputs have ALREADY had their Qwen ASR protocol headers removed. */
     fun stitch(segments: List<String>, overlapSeconds: Int): Result {
         require(overlapSeconds == 0 || overlapSeconds == 1) { "Unsupported overlap" }
-        if (segments.isEmpty()) return Result("", 0, 0, 0, 0)
+        if (segments.isEmpty()) return Result("", 0, 0, 0, 0, emptyList())
         // Preserve the original 6.6.1 non-overlap baseline byte-for-byte.
         if (overlapSeconds == 0) {
-            return Result(segments.joinToString(" ") { it.trim() }.trim(), 0, 0, 0, 0)
+            return Result(segments.joinToString(" ") { it.trim() }.trim(), 0, 0, 0, 0, segments.map { it.trim() })
         }
 
         // Production Parakeet's cleaner preserves ordinary speech repetitions, removing
         // only obvious >=3-copy loops of substantial phrases within a decoded window.
         val cleaned = segments.map { TranscriptCleaner.cleanChunk(it) }
+        val keptWindows = ArrayList<String>(cleaned.size).apply { add(cleaned.first().text) }
         val merged = StringBuilder(cleaned.first().text)
         var removed = 0
         var matched = 0
@@ -44,6 +46,7 @@ internal object QwenTranscriptStitcher {
         for (piece in cleaned.drop(1)) {
             val next = piece.text
             if (next.isBlank()) {
+                keptWindows.add("")
                 unmatched++
                 continue
             }
@@ -74,12 +77,13 @@ internal object QwenTranscriptStitcher {
                 next.substring(right[matchedCount - 1].range.last + 1)
                     .trimStart { it.isWhitespace() || it in ",.;:!?-" }
             }
+            keptWindows.add(remainder)
             if (remainder.isNotBlank()) {
                 if (merged.isNotEmpty()) merged.append(' ')
                 merged.append(remainder)
             }
         }
         return Result(merged.toString().trim(), removed, matched, unmatched,
-            cleaned.sumOf { it.repetitionsRemoved })
+            cleaned.sumOf { it.repetitionsRemoved }, keptWindows)
     }
 }

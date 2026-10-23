@@ -1,7 +1,8 @@
 name: Build Android APK
 
-# Every branch push builds a side-by-side debug .dev APK; release remains manual.
-# No automatic GitHub releases, tags or production installs.
+# Every branch push builds a side-by-side debug .dev APK and publishes a GitHub
+# prerelease only after build/APK audits. Signed production releases remain manual.
+# Nothing here installs an APK on a device.
 on:
   push:
     branches:
@@ -231,7 +232,7 @@ jobs:
           if [ "$has_signing" = "true" ]; then
             echo "Release signing secrets are available; this run will build a signed release APK."
           else
-            echo "Release signing secrets are absent: producing debug artifact only; no GitHub Release."
+            echo "Release signing secrets are absent: producing debug artifact only; a successful audited debug APK will be a prerelease."
           fi
 
       - name: Restore permanent release signing key
@@ -525,3 +526,60 @@ jobs:
             ${{ env.PROJECT_DIR }}/app/build/reports/lint-results-release.xml
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish tested APK to GitHub Releases
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified APK and build proof
+        uses: actions/download-artifact@v4
+        with:
+          name: WhisperRecorder-build-${{ github.run_number }}
+          path: release-assets
+
+      - name: Publish APK release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REQUESTED_VARIANT: ${{ inputs.build_variant }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t APKS < <(find release-assets -type f -name 'WhisperRecorder-*.apk' | sort)
+          test "${#APKS[@]}" -eq 1 || { echo 'Exactly one audited APK is required' >&2; exit 1; }
+          PROOF="$(find release-assets -type f -name build-proof.txt -print -quit)"
+          test -s "$PROOF" || { echo 'Missing build proof' >&2; exit 1; }
+          grep -Fx 'android_lint_exit=0' "$PROOF" || { echo 'Lint failed; will not publish' >&2; exit 1; }
+          SHA_EXPECTED="$(sed -n 's/^apk_sha256=//p' "$PROOF")"
+          test -n "$SHA_EXPECTED"
+          echo "$SHA_EXPECTED  ${APKS[0]}" | sha256sum --check --status
+          test "$(sed -n 's/^commit=//p' "$PROOF")" = "$SOURCE_SHA"
+          VERSION="$(sed -n 's/^versionName=//p' "$PROOF")"
+          VARIANT="$(sed -n 's/^variant=//p' "$PROOF")"
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$REQUESTED_VARIANT" = release ]; then
+            test "$VARIANT" = release
+            TAG="v$VERSION"
+            TITLE="Whisper Recorder v$VERSION"
+            STATUS=()
+          else
+            test "$VARIANT" = debug
+            TAG="v$VERSION-dev.${RUN_NUMBER}.${RUN_ATTEMPT}"
+            TITLE="Whisper Recorder v$VERSION debug preview (run $RUN_NUMBER)"
+            STATUS=(--prerelease)
+          fi
+          if gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to replace an existing APK" >&2
+            exit 1
+          fi
+          gh release create "$TAG" "${APKS[0]}" "$PROOF" \
+            --repo "$REPOSITORY" --target "$SOURCE_SHA" --title "$TITLE" \
+            --notes "CI-verified $VARIANT APK from commit $SOURCE_SHA. Consult build-proof.txt for signer, SHA-256 and lint." \
+            "${STATUS[@]}"

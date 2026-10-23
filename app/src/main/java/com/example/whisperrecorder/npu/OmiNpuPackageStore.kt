@@ -23,7 +23,7 @@ internal object OmiNpuPackageStore {
     const val MANIFEST = "model-manifest.json"
     private const val READY = "READY.json"
     private const val BUFFER = 1024 * 1024
-    val ASSETS = OmiNpuProbeContracts.ALL.associate { it.graph.artifactPath to
+    val ASSETS = OmiNpuGraphContracts.ALL.associate { it.graph.artifactPath to
         Asset(it.graph.artifactBytes, it.sha256) } + mapOf(
         "token_embedding.npy" to Asset(2_624_128L, "7a3664cec196ff0345a94cfe763a45e268c56c93d2b71bbb2455112271e4b8f1"),
         "tokenizer.model" to Asset(251_396L, "5a3a82c48998709f9bc9f5db2924d99a899d20bf82550ca52272da7c7557b0a0")

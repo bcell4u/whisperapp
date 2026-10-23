@@ -1,6 +1,6 @@
 # 6.7 Qwen3-ASR 0.6B production integration candidate
 
-Production v6.5.22 is the base. Qwen3-ASR 0.6B is a separate Advanced Local
+Production v6.5.22 is the base. Qwen3-ASR 0.6B is the only Hybrid (CPU/NPU)
 ASR model card (~1.20 GB QNN + Q8_0 GGUF) backed by the Snapdragon S26
 QNN encoder and the pinned llama.cpp ARM64 dotprod decoder. The previous
 Qwen3-ASR 1.7B/transcribe.cpp backend has been removed; independent Whisper,
@@ -13,7 +13,7 @@ smoke testing remain unverified.
 **Trigger:** every Git push to any branch automatically starts a debug `.dev`
 APK build in GitHub Actions. **Actions → Build Android APK → Run workflow**
 remains available for a manual debug build or explicitly selected signed
-release candidate. The workflow never publishes an automatic GitHub Release.
+release candidate. Successful debug builds automatically publish a GitHub **prerelease** carrying the .dev APK and build-proof.txt; an explicitly requested, correctly signed manual production build publishes a versioned release only after validation. No production installation occurs automatically.
 
 # WhisperRecorder
 
@@ -34,6 +34,8 @@ The app maintains these independent offline recognition backends:
 
 For a first-time user without a manual engine preference, the app prefers a verified, installed NPU model, then an installed GPU model, then an installed CPU model. **Manual engine selections are never overridden.** This is model selection, not automatic cross-backend failover during inference. The GPU and CPU tiers each show a separate, persistent one-time in-app warning about processing temperature and battery use. No additional Automatic selection item is exposed in the model picker.
 
+Qwen 0.6B returns no native word timestamps: its transcript playback uses estimated three-word cues anchored to each 12-second decoded window, not to a whole 240-second slice. Retranscribe older recordings to regenerate these cues; the manual highlight offset remains available.
+
 Parakeet NPU emits approximate token/frame timing during existing inference. The app derives word-sized timeline cues for regular and speaker transcript playback, word highlighting, and seeking. If native timing is missing or fails validation, timing falls back to the existing estimated cues and records a diagnostic event. The UI uses a calm active-word text-color transition with subtle size emphasis.
 
 ## Recording and speaker transcripts
@@ -49,6 +51,8 @@ For the full technical details and caveats, see [NPU.md](NPU.md) and [SPEAKER_DI
 ## GitHub Actions build
 
 The complete source tree includes `.github/workflows/build.yml`, the Android Gradle modules, native modules, version metadata, and validation scripts. The workflow provisions the Android SDK/NDK, obtains and verifies pinned native dependencies, runs JVM tests, assembles an APK, audits it, and uses the configured permanent signing key for a signed production build. Review [SIGNING.md](SIGNING.md) and [VERSIONING.md](VERSIONING.md) before publishing.
+
+GitHub Releases now receives every successful, lint-clean build. Automatic pushes publish **debug prereleases only**, with distinct tags `v6.7.0-dev.<run>.<attempt>`. Explicit manual release-variant builds require the permanent signing secrets and publish the stable `v6.7.0` tag only when it does not already exist. These releases upload the APK and `build-proof.txt`; they never contain downloaded ASR weights.
 
 Before building, run `bash scripts/verify-source.sh` if a local shell is available. The official Android build runs in GitHub Actions; passing static source checks alone is **not** proof of compilation or device operation.
 

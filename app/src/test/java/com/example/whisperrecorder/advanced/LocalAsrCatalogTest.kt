@@ -45,8 +45,10 @@ class LocalAsrCatalogTest {
     }
 
     @Test
-    fun nvidiaSectionContainsOnlyTheProductionParakeetEngine() {
-        assertTrue(LocalAsrModelManager.nvidiaParakeetModels.all { it.engine == AsrEngine.PARAKEET })
+    fun gpuAndHybridSectionsRouteModelsToTheirCorrectAccelerationTier() {
+        assertEquals(setOf(AsrEngine.PARAKEET, AsrEngine.OMI),
+            LocalAsrModelManager.gpuModels.map { it.engine }.toSet())
+        assertEquals(listOf(AsrEngine.QWEN06), LocalAsrModelManager.hybridModels.map { it.engine })
         assertTrue("parakeet11" !in AsrEngine.ids)
     }
 

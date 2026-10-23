@@ -6,7 +6,7 @@ settings="$root/app/src/main/java/com/example/whisperrecorder/ui/settings/Settin
 probe="$root/app/src/main/java/com/example/whisperrecorder/audio/MicrophoneCapabilityProbe.kt"
 wav="$root/app/src/main/java/com/example/whisperrecorder/audio/WavPcmRecorder.kt"
 for file in "$setup" "$settings" "$probe" "$wav"; do test -f "$file" || { echo "Missing $file" >&2; exit 1; }; done
-for item in 'SectionLabel("QUALCOMM NPU PARAKEET")' 'NpuPackageStore.archiveState(context)' 'NpuPackageStore.selectForTranscription(context)' 'NpuPackageStore.DOWNLOAD_ID'; do
+for item in 'SectionLabel("NPU ACCELERATED")' 'NpuPackageStore.archiveState(context)' 'NpuPackageStore.selectForTranscription(context)' 'NpuPackageStore.DOWNLOAD_ID'; do
   grep -Fq "$item" "$setup" || { echo "Setup NPU guard missing: $item" >&2; exit 1; }
 done
 for item in 'MicrophoneCapabilityProbe.check(context, nextSource, format, nextNs, nextAec)' 'if (result.supported) onApproved()'; do

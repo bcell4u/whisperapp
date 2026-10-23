@@ -171,7 +171,7 @@ internal fun ModelsScreen(
                 }
             }
 
-            item { SectionLabel("QUALCOMM NPU") }
+            item { SectionLabel("NPU ACCELERATED") }
             item {
                 ModelCatalogCard(
                     details = ModelCardDetails(
@@ -251,8 +251,8 @@ internal fun ModelsScreen(
                 )
             }
 
-            item { SectionLabel("NVIDIA PARAKEET") }
-            items(LocalAsrModelManager.nvidiaParakeetModels, key = { "parakeet-local-${it.id}" }) { model ->
+            item { SectionLabel("GPU ACCELERATED") }
+            items(LocalAsrModelManager.gpuModels, key = { "parakeet-local-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -273,8 +273,8 @@ internal fun ModelsScreen(
                 )
             }
 
-            item { SectionLabel("ADVANCED LOCAL ASR") }
-            items(LocalAsrModelManager.advancedModels, key = { "local-${it.id}" }) { model ->
+            item { SectionLabel("HYBRID (CPU/NPU)") }
+            items(LocalAsrModelManager.hybridModels, key = { "local-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled

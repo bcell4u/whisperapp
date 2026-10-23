@@ -11,7 +11,7 @@ class OmiNpuPackageStoreTest {
     }
 
     @Test fun downloadedContextsKeepPublishedMetadataUnchanged() {
-        OmiNpuProbeContracts.ALL.forEach { context ->
+        OmiNpuGraphContracts.ALL.forEach { context ->
             val artifact = OmiNpuPackageStore.ASSETS.getValue(context.graph.artifactPath)
             assertEquals(context.graph.artifactBytes, artifact.bytes)
             assertEquals(context.sha256, artifact.sha256)

@@ -31,7 +31,6 @@ import com.example.whisperrecorder.models.ModelManager
 import com.example.whisperrecorder.npu.NpuArchiveState
 import com.example.whisperrecorder.npu.NpuPackageStore
 import com.example.whisperrecorder.npu.OmiNpuPackageStore
-import com.example.whisperrecorder.npu.NpuRuntimeClient
 import com.example.whisperrecorder.ui.AudioFormatCard
 import com.example.whisperrecorder.ui.BackArrowButton
 import com.example.whisperrecorder.ui.SectionLabel
@@ -497,51 +496,7 @@ internal fun EffectModeCard(title: String, selected: String, supported: Boolean,
 @Composable
 internal fun DiagnosticsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var probeRunning by remember { mutableStateOf(false) }
-    var testEncoder by remember { mutableStateOf(false) }
-    var probeSummary by remember { mutableStateOf("") }
     var preview by remember { mutableStateOf(DiagnosticLogger.readTail(context, 12_000)) }
-    fun runOmiProbe() {
-        if (!probeRunning) {
-            probeRunning = true
-            probeSummary = "Testing Omi QNN contexts. Keep the app open; encoder loading may take several minutes."
-            scope.launch {
-                val outcome = withContext(Dispatchers.IO) {
-                    runCatching {
-                        NpuRuntimeClient.connect(context).use { client ->
-                            client.probeOmiContexts(testEncoder)
-                        }
-                    }
-                }
-                outcome.onSuccess { result ->
-                    val summary = buildString {
-                        append("Omi NPU probe: ")
-                        append(if (result.optBoolean("ok")) "PASS" else "FAILED")
-                        append("; graphs=")
-                        val graphs = result.optJSONArray("graphs")
-                        if (graphs == null) append("no results") else {
-                            for (i in 0 until graphs.length()) {
-                                val graph = graphs.getJSONObject(i)
-                                if (i > 0) append(", ")
-                                append(graph.optString("graph"))
-                                append(if (graph.optBoolean("ok")) " PASS" else " FAIL@${graph.optString("failure_stage")}")
-                            }
-                        }
-                        result.optString("error").takeIf { it.isNotBlank() }?.let { append("; ").append(it) }
-                    }
-                    DiagnosticLogger.append(context, "omi-npu-probe RESULT $summary")
-                    DiagnosticLogger.append(context, "omi-npu-probe JSON ${result}")
-                    probeSummary = summary
-                }.onFailure { error ->
-                    DiagnosticLogger.appendError(context, "omi-npu-probe IPC", error)
-                    probeSummary = "Probe could not finish: ${error::class.java.simpleName}: ${error.message}; export diagnostics for details"
-                }
-                probeRunning = false
-                preview = DiagnosticLogger.readTail(context, 12_000)
-            }
-        }
-    }
     var verbose by remember { mutableStateOf(AppPrefs.isVerboseDiagnostics(context)) }
     var status by remember { mutableStateOf("") }
     val clipboard = LocalClipboardManager.current
@@ -596,25 +551,6 @@ internal fun DiagnosticsScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-            }
-
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Omi Med NPU compatibility", style = MaterialTheme.typography.titleMedium)
-                    Text("Download the Omi NPU package from Models & downloads first. This runs a synthetic QNN graph test on those installed assets, not a speech transcription test.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = testEncoder, onCheckedChange = { testEncoder = it }, enabled = !probeRunning)
-                        Text("Include 1.2 GB encoder (longer test)", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Button(onClick = { runOmiProbe() }, enabled = !probeRunning) {
-                        Text(if (probeRunning) "Testing QNN contexts…" else "Test downloaded Omi NPU assets")
-                    }
-                    if (probeRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if (probeSummary.isNotBlank()) Text(probeSummary, style = MaterialTheme.typography.bodySmall)
-                    Text("The export below includes per-graph failure stage, session errors, stacks, execution timing and the NPU worker log. CPU fallback is disabled.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 

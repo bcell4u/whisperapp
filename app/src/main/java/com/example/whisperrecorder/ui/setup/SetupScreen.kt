@@ -196,7 +196,7 @@ internal fun SetupScreen(
                 }
             }
 
-            item { SectionLabel("QUALCOMM NPU PARAKEET") }
+            item { SectionLabel("NPU ACCELERATED") }
             item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -243,9 +243,9 @@ internal fun SetupScreen(
                 }
             }
 
-            item { SectionLabel("NVIDIA PARAKEET") }
+            item { SectionLabel("GPU ACCELERATED") }
 
-            items(LocalAsrModelManager.nvidiaParakeetModels, key = { "setup-parakeet-local-${it.id}" }) { model ->
+            items(LocalAsrModelManager.gpuModels, key = { "setup-parakeet-local-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled
@@ -264,8 +264,8 @@ internal fun SetupScreen(
                 )
             }
 
-            item { SectionLabel("ADVANCED LOCAL ASR") }
-            items(LocalAsrModelManager.advancedModels, key = { "setup-local-${it.id}" }) { model ->
+            item { SectionLabel("HYBRID (CPU/NPU)") }
+            items(LocalAsrModelManager.hybridModels, key = { "setup-local-${it.id}" }) { model ->
                 val localInstalled = model.id in localInstalledIds
                 val localPersistent = model.id in localPersistentIds
                 val localSelected = selectedEngine == model.engine.id && localInstalled

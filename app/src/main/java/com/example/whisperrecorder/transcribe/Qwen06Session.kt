@@ -51,8 +51,21 @@ internal class Qwen06Session(context: Context) : AsrSession {
         require(result.getInt("segments") == count && result.getInt("model_loads") == 1) {
             "Qwen decoder returned incomplete results"
         }
+        val windows = result.getJSONArray("kept_windows")
+        require(windows.length() == count) { "Qwen stitched window count mismatch" }
+        val alignedWindows = (0 until count).mapNotNull { index ->
+            val startSample = index * 176_000
+            val endSample = minOf(samples.size, startSample + 192_000)
+            val phrase = windows.getString(index).trim()
+            if (phrase.isEmpty()) null else TimedTextSegment(
+                startMs = startSample * 1000L / 16_000L,
+                endMs = endSample * 1000L / 16_000L,
+                text = phrase
+            )
+        }
         return AsrRecognition(
             text = result.getString("transcript"),
+            timedSegments = alignedWindows,
             diagnostics = " backend=qwen06-qnn-llama decoderThreads=4" +
                 " qnnWindows=$count qnnMs=${result.optLong("encoder_ms", -1L)}" +
                 " preprocessingMs=${result.optLong("preprocess_ms", -1L)}" +

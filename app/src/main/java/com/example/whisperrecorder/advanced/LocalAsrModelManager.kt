@@ -84,8 +84,10 @@ object LocalAsrModelManager {
         )
     )
 
-    val nvidiaParakeetModels: List<LocalAsrModel> = catalog.filter { it.engine == AsrEngine.PARAKEET }
-    val advancedModels: List<LocalAsrModel> = catalog.filter { it.engine != AsrEngine.PARAKEET }
+    val gpuModels: List<LocalAsrModel> = catalog.filter {
+        it.engine == AsrEngine.PARAKEET || it.engine == AsrEngine.OMI
+    }
+    val hybridModels: List<LocalAsrModel> = catalog.filter { it.engine == AsrEngine.QWEN06 }
     private val idIndex: Map<String, LocalAsrModel> = catalog.associateBy { it.id }
     private val engineIndex: Map<AsrEngine, LocalAsrModel> = catalog.associateBy { it.engine }
     val engineIds: Set<String> = engineIndex.keys.mapTo(linkedSetOf()) { it.id }

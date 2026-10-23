@@ -530,7 +530,19 @@ class TranscriptionService : Service() {
                                 val cueFloor = maxOf(sliceStartMs, lastProcessedAudioEndMs).coerceAtMost(sliceEndMs)
                                 val mayNeedSpeechTiming = request.engine == AsrEngine.QWEN06 ||
                                     request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU
-                                val cueResult = TranscriptTimelineBuilder.cuesForChunkDetailed(
+                                val qwenWindowCues = if (request.engine == AsrEngine.QWEN06) {
+                                    TranscriptTimelineBuilder.cuesForQwenWindows(
+                                        cleanedText = cleanup.text,
+                                        chunkStartMs = sliceStartMs,
+                                        chunkEndMs = sliceEndMs,
+                                        nativeWindows = slice.recognition.timedSegments,
+                                        minimumStartMs = cueFloor,
+                                        speechSamples = samples,
+                                        speechSampleStart = slice.startSample,
+                                        speechSampleEnd = slice.endSample
+                                    )
+                                } else null
+                                val cueResult = if (qwenWindowCues == null) TranscriptTimelineBuilder.cuesForChunkDetailed(
                                     cleanedText = cleanup.text,
                                     chunkStartMs = sliceStartMs,
                                     chunkEndMs = sliceEndMs,
@@ -542,15 +554,16 @@ class TranscriptionService : Service() {
                                     speechSamples = if (mayNeedSpeechTiming) samples else null,
                                     speechSampleStart = if (mayNeedSpeechTiming) slice.startSample else 0,
                                     speechSampleEnd = if (mayNeedSpeechTiming) slice.endSample else 0
-                                )
-                                timelineCues += cueResult.cues
+                                ) else null
+                                timelineCues += qwenWindowCues ?: requireNotNull(cueResult).cues
                                 if (request.engine == AsrEngine.PARAKEET_NPU || request.engine == AsrEngine.OMI_NPU) {
+                                    val npuCueReceipt = requireNotNull(cueResult)
                                     DiagnosticLogger.append(this@TranscriptionService,
-                                        "npu word-sync chunk=$chunk/$totalChunks nativeWords=${cueResult.nativeProvided} " +
-                                        "alignedWords=${cueResult.nativeAligned} savedCues=${cueResult.cues.size} " +
-                                        "mode=${cueResult.mode} reason=${cueResult.reason} " +
-                                        "overlapDiscarded=${cueResult.overlapDiscarded} overlapClipped=${cueResult.overlapClipped} " +
-                                        "cleanupDropped=${cueResult.droppedForCleanup} " +
+                                        "npu word-sync chunk=$chunk/$totalChunks nativeWords=${npuCueReceipt.nativeProvided} " +
+                                        "alignedWords=${npuCueReceipt.nativeAligned} savedCues=${npuCueReceipt.cues.size} " +
+                                        "mode=${npuCueReceipt.mode} reason=${npuCueReceipt.reason} " +
+                                        "overlapDiscarded=${npuCueReceipt.overlapDiscarded} overlapClipped=${npuCueReceipt.overlapClipped} " +
+                                        "cleanupDropped=${npuCueReceipt.droppedForCleanup} " +
                                         "startMs=$sliceStartMs endMs=$sliceEndMs")
                                 }
                             }

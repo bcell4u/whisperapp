@@ -19,7 +19,21 @@ downloader = read('app/src/main/java/com/example/whisperrecorder/qwen/QwenModelD
 all_files = [x for x in root.rglob('*') if x.is_file() and not any(q in x.parts for q in ('build', '.gradle', '.native-deps', 'scripts'))]
 checks = {
     'version 6.7.0 / 67000': version == {'releaseVersion':'6.7.0','versionName':'6.7.0','versionCode':'67000'},
-    'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish GitHub Release' not in wf,
+    'automatic push builds + optional manual dispatch': bool(re.search(r"(?m)^on:\s*\n  push:\s*\n    branches:\s*\n      - '\*\*'\s*\n  workflow_dispatch:", wf)) and 'Publish tested APK to GitHub Releases' in wf,
+    'published debug builds are clearly prereleases': all(m in wf for m in (
+        'gh release create', '--prerelease', 'needs: build', 'contents: write',
+        'android_lint_exit=0', 'sha256sum --check --status')),
+    'diagnostic-only Omi probe removed': all('probeOmiContexts' not in read(p) for p in (
+        'app/src/main/aidl/com/example/whisperrecorder/npu/INpuRuntimeService.aidl',
+        'app/src/main/java/com/example/whisperrecorder/npu/NpuRuntimeWorkerService.kt',
+        'app/src/main/java/com/example/whisperrecorder/npu/NpuRuntimeClient.kt')),
+    'model section titles and exact GPU/Qwen routing': all(m in read('app/src/main/java/com/example/whisperrecorder/ui/models/ModelsScreen.kt') for m in (
+        'NPU ACCELERATED', 'GPU ACCELERATED', 'HYBRID (CPU/NPU)',
+        'LocalAsrModelManager.gpuModels', 'LocalAsrModelManager.hybridModels'))
+        and 'it.engine == AsrEngine.PARAKEET || it.engine == AsrEngine.OMI' in models
+        and 'it.engine == AsrEngine.QWEN06' in models,
+    'window-anchored Qwen approximate phrase timing': all(m in read('app/src/main/java/com/example/whisperrecorder/transcribe/TranscriptTimeline.kt') for m in (
+        'cuesForQwenWindows', 'splitEstimatedPhrases(window.text.trim(), maxWords = 3)')),
     'auto build can never select signed production release': all(s in wf for s in (
         "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release'",
         "if: github.event_name == 'workflow_dispatch' && inputs.build_variant == 'release' && env.HAS_RELEASE_SIGNING == 'true'",
@@ -43,6 +57,11 @@ checks = {
     'no Lab source tree/fixtures': all(not any(part in {'verification','fixtures','lab'} for part in p.relative_to(root).parts) for p in all_files)
         and not any('s26-synthetic' in p.name.lower() for p in all_files),
     'no downloaded model weights committed': not any(p.suffix.lower() in {'.gguf','.onnx','.bin','.safetensors'} for p in all_files),
+    'QNN component is never shown as a Whisper .bin model': all(x in read('app/src/main/java/com/example/whisperrecorder/models/ModelManager.kt') for x in (
+        'isWhisperModelCandidate', 'encoder-qnn-', 'filter { isWhisperModelCandidate(it.name) }')),
+    'Omi diagnostic probe cleanup is complete': not (root / 'scripts/verify-omi-probe.sh').exists()
+        and not (app / 'npu/OmiNpuProbeContracts.kt').exists()
+        and 'Omi Med NPU compatibility' not in read('app/src/main/java/com/example/whisperrecorder/ui/settings/SettingsSubscreens.kt'),
     'model removed with own QNN encoder': 'encoderDir.deleteRecursively()' in models,
     'model assets downloaded only on request': 'downloadMissing(' in read('app/src/main/java/com/example/whisperrecorder/models/ModelDownloadService.kt'),
     'exact S26 qualifier displayed': 'SM-S942U only' in models,

@@ -204,6 +204,61 @@ object TranscriptTimelineBuilder {
             "estimated-uniform", nativeFailure)
     }
 
+    /**
+     * Qwen text has no native word timestamps. Its native segment start/end are 12-second
+     * decoding WINDOW boundaries, not speech onset/offset. Align a few-word cue inside
+     * each window using local PCM activity; never spread the entire transcript over a
+     * 240-second slice. If post-processing altered the text, fall back to safe general
+     * timing rather than mismatching highlights with visible transcript words.
+     */
+    fun cuesForQwenWindows(
+        cleanedText: String,
+        chunkStartMs: Long,
+        chunkEndMs: Long,
+        nativeWindows: List<TimedTextSegment>,
+        minimumStartMs: Long,
+        speechSamples: FloatArray,
+        speechSampleStart: Int,
+        speechSampleEnd: Int
+    ): List<TranscriptCue>? {
+        if (nativeWindows.isEmpty()) return null
+        val combined = nativeWindows.joinToString(" ") { it.text.trim() }.trim()
+        if (combined.replace(Regex("\\s+"), " ") != cleanedText.trim().replace(Regex("\\s+"), " ")) return null
+        val sorted = nativeWindows.sortedBy { it.startMs }
+        val out = mutableListOf<TranscriptCue>()
+        for ((index, window) in sorted.withIndex()) {
+            val startMs = (chunkStartMs + window.startMs).coerceAtLeast(minimumStartMs)
+            // The next decoding window begins at +11s; assign its overlap to
+            // that next window to prevent double timing of the same 1s audio.
+            val nextStart = sorted.getOrNull(index + 1)?.let { chunkStartMs + it.startMs }
+            val endMs = minOf(chunkStartMs + window.endMs, nextStart ?: chunkEndMs, chunkEndMs)
+            if (endMs <= startMs) continue
+            val startSample = (speechSampleStart + ((startMs - chunkStartMs) * 16L).toInt())
+                .coerceIn(speechSampleStart, speechSampleEnd)
+            val endSample = (speechSampleStart + ((endMs - chunkStartMs) * 16L).toInt())
+                .coerceIn(startSample, speechSampleEnd)
+            val estimated = allocateBySpeechActivity(
+                splitEstimatedPhrases(window.text.trim(), maxWords = 3), startMs, endMs,
+                speechSamples, startSample, endSample
+            )
+            val phrases = if (estimated.isNotEmpty()) estimated else
+                allocate(splitEstimatedPhrases(window.text.trim(), maxWords = 3), startMs, endMs)
+            // Speech-frame rounding can overlap adjacent 20 ms bins by one frame.
+            // Clip the next phrase to the previous phrase's end: cueIndexAt must
+            // never be asked to resolve overlapping intervals.
+            var floorMs = startMs
+            for (phrase in phrases) {
+                val cueStart = maxOf(phrase.startMs, floorMs)
+                val cueEnd = minOf(phrase.endMs, endMs)
+                if (cueEnd > cueStart) {
+                    out += TranscriptCue(cueStart, cueEnd, phrase.text)
+                    floorMs = cueEnd
+                }
+            }
+        }
+        return out.takeIf { it.isNotEmpty() }
+    }
+
     private fun alignNativeToCleanedText(
         nativeSegments: List<TimedTextSegment>, cleanedText: String
     ): NativeAlignment? {
@@ -419,7 +474,7 @@ object TranscriptTimelineBuilder {
     }
 
     /** Short punctuation-aware phrases for engines that have text but no native timestamps. */
-    private fun splitEstimatedPhrases(text: String): List<String> {
+    private fun splitEstimatedPhrases(text: String, maxWords: Int = MAX_ESTIMATED_WORDS_PER_CUE): List<String> {
         val words = NON_WHITESPACE.findAll(text).toList()
         if (words.isEmpty()) return emptyList()
         val out = mutableListOf<String>()
@@ -430,7 +485,7 @@ object TranscriptTimelineBuilder {
             val terminal = match.value.trimEnd().lastOrNull()
             val punctuationBreak = count >= MIN_ESTIMATED_WORDS_BEFORE_PUNCT_BREAK &&
                 (terminal == '.' || terminal == '!' || terminal == '?' || terminal == ',' || terminal == ';' || terminal == ':')
-            if (punctuationBreak || count >= MAX_ESTIMATED_WORDS_PER_CUE || index == words.lastIndex) {
+            if (punctuationBreak || count >= maxWords || index == words.lastIndex) {
                 val startChar = words[startWord].range.first
                 val endChar = match.range.last + 1
                 out += text.substring(startChar, endChar).trim()
